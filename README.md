@@ -145,7 +145,8 @@ narrow `--match` instead.
 
 ## Redis versions
 
-Works with Redis 5+. Some details need newer servers:
+Works with Redis 5+ and is tested in CI on 6.2, 7.4 and 8.x (including streams
+trimmed with `XACKDEL … ACKED`). Some details need newer servers:
 
 - `lag` and `entries-read` (group gauge, precise delivery counts): **7.0+**
 - consumer `inactive`: **7.2+**

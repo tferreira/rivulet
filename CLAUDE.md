@@ -37,7 +37,7 @@ npm test                                     # unit tests (guard, parse); integr
 REDIS_URL=redis://127.0.0.1:6379 npm test    # + integration against a real Redis
 ```
 
-`npm test` runs `node --test test/*.test.js` (Node 25 no longer accepts a bare directory). CI runs Node 20/22/24 × Redis 6.2/7.4 and builds the Docker image. For UI changes, run `node examples/traffic.js` + the CLI and check sim and live mode in a browser at desktop and ~400px widths, in all three themes.
+`npm test` runs `node --test test/*.test.js` (Node 25 no longer accepts a bare directory). CI runs Node 20/22/24 × Redis 6.2/7.4/8.2 and builds the Docker image. For UI changes, run `node examples/traffic.js` + the CLI and check sim and live mode in a browser at desktop and ~400px widths, in all three themes.
 
 ## Release
 

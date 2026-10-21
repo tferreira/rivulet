@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         node: [20, 22, 24]
-        redis: ['7.4', '6.2']
+        redis: ['8.2', '7.4', '6.2']
     services:
       redis:
         image: redis:${{ matrix.redis }}
