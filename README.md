@@ -4,6 +4,8 @@ A realtime, animated viewer for **Redis Streams**. Watch entries flow down each
 stream, consumer groups pick them up, consumers pulse as they read, pending
 entries hang unacked, and lag build up and drain, live.
 
+![rivulet watching five streams: entries flowing down lanes, consumer groups picking them up, a lagging analytics group](docs/demo.gif)
+
 **[Live demo →](https://tferreira.github.io/rivulet/)** (runs on the built-in simulator)
 
 ```sh
@@ -28,6 +30,10 @@ It is **read-only by construction**, so it is safe to point at production.
 Hover anything for details; click a stream for its most recent entries.
 Three themes, switched with the button in the header (or `t`): **Neon**,
 **Clean** and **Cockpit**. `space` pauses.
+
+| Neon | Clean | Cockpit |
+| --- | --- | --- |
+| ![Neon theme](docs/theme-neon.png) | ![Clean theme](docs/theme-clean.png) | ![Cockpit theme](docs/theme-cockpit.png) |
 
 ## Install and run
 
