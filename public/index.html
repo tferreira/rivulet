@@ -169,7 +169,6 @@ canvas { display: block; width: 100%; }
     <div class="seg" id="windows" role="group" aria-label="Time window">
       <button data-v="10000">10s</button><button data-v="30000">30s</button><button data-v="120000">2m</button><button data-v="600000">10m</button>
     </div>
-    <button id="pause" class="icon" title="Pause (space)" aria-label="Pause">❚❚</button>
   </div>
 </header>
 <div class="sub">
@@ -261,7 +260,6 @@ const THEMES = {
 let themeName = THEMES[params.get('theme')] ? params.get('theme') : (THEMES[store.get('theme')] ? store.get('theme') : 'neon');
 let T = THEMES[themeName];
 let windowMs = +(store.get('window') || 30000);
-let paused = false, pausedAt = 0;
 
 // Glow sprites, one per color, drawn additively in the neon theme.
 const sprites = new Map();
@@ -285,8 +283,7 @@ const MAX_ENTRIES = 4000, CLUSTER_MAX = 24;
 const model = { mode: 'sim', live: null, offset: 0, synced: false, streams: new Map(), sparks: [], bursts: [], redis: 'up' };
 let streamSeq = 0;
 
-const wallNow = () => (paused ? pausedAt : Date.now());
-const redisNow = () => wallNow() + model.offset;
+const redisNow = () => Date.now() + model.offset;
 
 function ensureStream(key) {
   let S = model.streams.get(key);
@@ -1104,19 +1101,11 @@ function setWindow(ms) {
   windowMs = ms; store.set('window', String(ms));
   for (const b of document.querySelectorAll('#windows button')) b.setAttribute('aria-pressed', String(+b.dataset.v === ms));
 }
-function togglePause() {
-  paused = !paused;
-  if (paused) pausedAt = Date.now();
-  $('#pause').textContent = paused ? '▶' : '❚❚';
-  $('#pause').setAttribute('aria-label', paused ? 'Resume' : 'Pause');
-}
 $('#theme').onclick = cycleTheme;
 $('#windows').onclick = (e) => e.target.dataset.v && setWindow(+e.target.dataset.v);
-$('#pause').onclick = togglePause;
 addEventListener('keydown', (e) => {
   if (e.target.closest?.('input,textarea')) return;
   if (e.key === 'Escape') closeDrawer();
-  else if (e.key === ' ') { e.preventDefault(); togglePause(); }
   else if (e.key === 't') cycleTheme();
 });
 

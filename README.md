@@ -29,7 +29,7 @@ It is **read-only by construction**, so it is safe to point at production.
 
 Hover anything for details; click a stream for its most recent entries.
 Three themes, switched with the button in the header (or `t`): **Neon**,
-**Clean** and **Cockpit**. `space` pauses.
+**Clean** and **Cockpit**.
 
 | Neon | Clean | Cockpit |
 | --- | --- | --- |
