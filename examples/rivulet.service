@@ -1,0 +1,31 @@
+# systemd unit for running rivulet on a server without Docker.
+#
+#   npm install -g rivulet-redis        # or: npm install -g github:tferreira/rivulet
+#   sudo cp examples/rivulet.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rivulet
+#
+# Optional settings go in /etc/rivulet.env, e.g.
+#   REDIS_URL=redis://10.0.0.5:6379/0
+#   REDIS_USERNAME=rivulet
+#   REDIS_PASSWORD=...
+#   PORT=7380
+
+[Unit]
+Description=rivulet - realtime Redis Streams visualizer (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/rivulet.env
+# Loopback only: reach it through an SSH tunnel or a reverse proxy with auth.
+ExecStart=/usr/bin/env rivulet --host 127.0.0.1
+Restart=on-failure
+RestartSec=3
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

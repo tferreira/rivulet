@@ -1,0 +1,50 @@
+{
+  "name": "rivulet-redis",
+  "version": "0.1.0",
+  "description": "Realtime, animated, read-only visualizer for Redis Streams: streams, consumer groups, lag and pending entries in motion.",
+  "main": "src/bridge.js",
+  "scripts": {
+    "start": "node bin/rivulet.js",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "redis",
+    "redis-streams",
+    "streams",
+    "visualizer",
+    "consumer-groups",
+    "monitoring",
+    "realtime",
+    "websocket"
+  ],
+  "author": "Thomas Ferreira",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "ioredis": "^5.11.1",
+    "ws": "^8.22.0"
+  },
+  "bin": {
+    "rivulet": "bin/rivulet.js"
+  },
+  "exports": {
+    ".": "./src/bridge.js",
+    "./server": "./src/server.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tferreira/rivulet.git"
+  },
+  "homepage": "https://github.com/tferreira/rivulet#readme",
+  "bugs": {
+    "url": "https://github.com/tferreira/rivulet/issues"
+  }
+}

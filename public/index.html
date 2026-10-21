@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rivulet</title>
+<meta name="description" content="Realtime, animated viewer for Redis Streams: streams, consumer groups, lag and pending entries in motion.">
+<!--RIVULET_CONFIG-->
+<style>
+:root {
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --bg: #0b0618; --fg: #efe9ff; --muted: #9a8fc7; --panel: rgba(20,10,45,.72);
+  --edge: rgba(167,139,250,.24); --accent: #22d3ee; --accent2: #f472b6;
+  --ok: #2bf5a0; --warn: #ffb020; --hot: #ff3d7f; --btn: rgba(167,139,250,.10);
+  --font: var(--sans);
+}
+body[data-theme="clean"] {
+  --bg: #f4f6fb; --fg: #1b1e2b; --muted: #6b7185; --panel: rgba(255,255,255,.9);
+  --edge: #e2e6ef; --accent: #3b6cf6; --accent2: #14a37f;
+  --ok: #14a37f; --warn: #d98a1c; --hot: #e5484d; --btn: #eef1f7;
+}
+body[data-theme="cockpit"] {
+  --bg: #020806; --fg: #b8ffcc; --muted: #4f9d6a; --panel: rgba(3,16,9,.92);
+  --edge: rgba(80,255,140,.28); --accent: #3cff7a; --accent2: #ffb000;
+  --ok: #3cff7a; --warn: #ffb000; --hot: #ff4a2e; --btn: rgba(80,255,140,.07);
+  --font: var(--mono);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font);
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
+body[data-theme="neon"] {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(124,58,237,.35), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(236,72,153,.18), transparent 60%),
+    linear-gradient(#0b0618, #07030f) fixed;
+}
+body[data-theme="neon"]::before {
+  content: ""; position: fixed; inset: auto 0 0 0; height: 42vh; pointer-events: none; z-index: -1;
+  background:
+    linear-gradient(transparent 0 96%, rgba(236,72,153,.35) 96%) 0 0 / 100% 36px,
+    linear-gradient(90deg, transparent 0 97%, rgba(167,139,250,.25) 97%) 0 0 / 64px 100%;
+  transform: perspective(380px) rotateX(58deg); transform-origin: bottom;
+  mask-image: linear-gradient(transparent, #000 70%); -webkit-mask-image: linear-gradient(transparent, #000 70%);
+}
+body[data-theme="cockpit"]::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 20;
+  background: repeating-linear-gradient(transparent 0 2px, rgba(0,0,0,.22) 2px 3px);
+}
+button { font: inherit; color: inherit; }
+
+.bar {
+  position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--edge);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .02em; font-size: 16px; }
+.brand svg { width: 26px; height: 18px; }
+body[data-theme="neon"] .brand b { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+body[data-theme="cockpit"] .brand b { text-transform: uppercase; letter-spacing: .2em; font-size: 14px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--edge); font-size: 12px; color: var(--muted); white-space: nowrap; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex: none; }
+.badge.live i { background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: ping 1.6s infinite; }
+.badge.live { color: var(--fg); }
+.badge.down i { background: var(--hot); }
+body[data-theme="cockpit"] .badge { border-radius: 2px; text-transform: uppercase; letter-spacing: .08em; }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 70%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
+.stats { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.stats b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stats .hot b { color: var(--hot); }
+.ctrls { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 9px; overflow: hidden; background: var(--btn); }
+.seg button, .icon {
+  border: 0; background: transparent; padding: 5px 10px; font-size: 12px; cursor: pointer; color: var(--muted);
+}
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+body[data-theme="neon"] .seg button[aria-pressed="true"] { background: linear-gradient(90deg, #7c3aed, #db2777); color: #fff; }
+.icon { border: 1px solid var(--edge); border-radius: 9px; background: var(--btn); min-width: 34px; }
+.icon:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme { display: inline-flex; align-items: center; gap: 7px; color: var(--fg); padding: 5px 12px 5px 9px; }
+.theme svg { width: 16px; height: 16px; display: none; color: var(--accent); }
+body[data-theme="neon"] .ti-neon, body[data-theme="clean"] .ti-clean, body[data-theme="cockpit"] .ti-cockpit { display: block; }
+.theme.spin svg { animation: spin .45s cubic-bezier(.2,.9,.3,1.3); }
+@keyframes spin { from { transform: rotate(-120deg) scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+body.fade main { animation: fade .35s ease; }
+@keyframes fade { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .theme.spin svg, body.fade main { animation: none; } }
+body[data-theme="cockpit"] .seg, body[data-theme="cockpit"] .icon { border-radius: 2px; }
+body[data-theme="cockpit"] .theme span { text-transform: uppercase; letter-spacing: .06em; }
+body[data-theme="cockpit"] .seg button { text-transform: uppercase; letter-spacing: .06em; }
+
+.sub {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 8px 16px;
+  font-size: 12px; color: var(--muted);
+}
+.sub code { font-family: var(--mono); color: var(--fg); background: var(--btn); border: 1px solid var(--edge); padding: 1px 6px; border-radius: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-left: auto; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; }
+.lg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.lg-cur { width: 2px; height: 12px; background: var(--fg); }
+.lg-pel { width: 7px; height: 7px; border-radius: 50%; background: var(--hot); }
+.lg-lag { width: 18px; height: 5px; border-radius: 3px; background: linear-gradient(90deg, var(--ok), var(--warn), var(--hot)); }
+
+main { position: relative; padding: 0 0 24px; }
+canvas { display: block; width: 100%; }
+#empty { display: none; padding: 60px 16px; text-align: center; color: var(--muted); }
+#empty.show { display: block; }
+
+.tip {
+  position: fixed; z-index: 30; pointer-events: none; opacity: 0; transition: opacity .12s;
+  max-width: min(340px, calc(100vw - 24px)); padding: 9px 11px; border-radius: 10px; font-size: 12px;
+  background: var(--panel); border: 1px solid var(--edge); box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.tip.show { opacity: 1; }
+.tip h4 { margin: 0 0 4px; font-size: 12px; font-family: var(--mono); word-break: break-all; }
+.tip dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; }
+.tip dt { color: var(--muted); }
+.tip dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+
+#drawer {
+  position: fixed; z-index: 25; top: 0; right: 0; bottom: 0; width: min(440px, 100vw);
+  background: var(--panel); border-left: 1px solid var(--edge); transform: translateX(100%);
+  transition: transform .22s ease; display: flex; flex-direction: column;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+#drawer.open { transform: none; box-shadow: -20px 0 50px rgba(0,0,0,.3); }
+#drawer header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--edge); }
+#drawer h3 { margin: 0; font-size: 14px; font-family: var(--mono); word-break: break-all; flex: 1; }
+#drawer .meta { padding: 10px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--edge); }
+#drawer ol { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+#drawer li { padding: 9px 16px; border-bottom: 1px solid var(--edge); font-size: 12px; }
+#drawer li .id { font-family: var(--mono); color: var(--accent); }
+#drawer li .age { float: right; color: var(--muted); }
+#drawer li .f { font-family: var(--mono); color: var(--muted); margin-top: 3px; word-break: break-all; }
+#drawer li .f b { color: var(--fg); font-weight: 500; }
+@media (max-width: 640px) {
+  .ctrls { margin-left: 0; }
+  .legend { margin-left: 0; }
+}
+</style>
+</head>
+<body data-theme="neon">
+<header class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 26 18" fill="none" aria-hidden="true">
+      <path d="M1 5c4 0 4 4 8 4s4-4 8-4 4 4 8 4" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+      <path d="M1 12c4 0 4 4 8 4s4-4 8-4 4 4 8 4" stroke="var(--accent2)" stroke-width="2" stroke-linecap="round" opacity=".8"/>
+    </svg>
+    <b>rivulet</b>
+  </div>
+  <div id="mode" class="badge"><i></i><span>Simulator</span></div>
+  <div class="stats" id="stats"></div>
+  <div class="ctrls">
+    <button id="theme" class="icon theme" title="Switch theme (t)">
+      <svg class="ti ti-neon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z" fill="currentColor"/><circle cx="19" cy="4" r="1.4" fill="currentColor"/></svg>
+      <svg class="ti ti-clean" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></g></svg>
+      <svg class="ti ti-cockpit" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 17a8.5 8.5 0 1 1 17 0"/><path d="M12 17l4.5-5"/></g><circle cx="12" cy="17" r="1.6" fill="currentColor"/></svg>
+      <span id="themeName">Neon</span>
+    </button>
+    <div class="seg" id="windows" role="group" aria-label="Time window">
+      <button data-v="10000">10s</button><button data-v="30000">30s</button><button data-v="120000">2m</button><button data-v="600000">10m</button>
+    </div>
+    <button id="pause" class="icon" title="Pause (space)" aria-label="Pause">❚❚</button>
+  </div>
+</header>
+<div class="sub">
+  <span id="hint">Demo data from the built-in simulator. Watch your own Redis with <code>npx rivulet-redis redis://host:6379</code></span>
+  <div class="legend">
+    <span><i class="lg-dot"></i>entry, drifting right as it ages</span>
+    <span><i class="lg-cur"></i>group cursor (last-delivered-id)</span>
+    <span><i class="lg-pel"></i>pending, not yet acked</span>
+    <span><i class="lg-lag"></i>lag</span>
+  </div>
+</div>
+<main>
+  <canvas id="c"></canvas>
+  <div id="empty">No streams yet. Waiting for <code>XADD</code>…</div>
+</main>
+<div id="tip" class="tip"></div>
+<aside id="drawer" aria-hidden="true">
+  <header><h3 id="dTitle"></h3><button class="icon" id="dClose" aria-label="Close">✕</button></header>
+  <div class="meta" id="dMeta"></div>
+  <ol id="dList"></ol>
+</aside>
+
+<script>
+'use strict';
+const CFG = window.RIVULET || {};
+const params = new URLSearchParams(location.search);
+const $ = (s) => document.querySelector(s);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------------------------------------------------------------- utilities
+const idMs = (id) => { const i = id.indexOf('-'); return +(i < 0 ? id : id.slice(0, i)); };
+function cmpId(a, b) {
+  const i = a.indexOf('-'), j = b.indexOf('-');
+  const d = +(i < 0 ? a : a.slice(0, i)) - +(j < 0 ? b : b.slice(0, j));
+  return d || (i < 0 ? 0 : +a.slice(i + 1)) - (j < 0 ? 0 : +b.slice(j + 1));
+}
+function fmtN(n) {
+  if (n == null || Number.isNaN(n)) return '–';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e4) return Math.round(n / 1e3) + 'k';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+function fmtMs(ms) {
+  if (ms == null || ms < 0) return '–';
+  if (ms < 1000) return Math.round(ms) + 'ms';
+  if (ms < 60e3) return (ms / 1e3).toFixed(1) + 's';
+  if (ms < 3600e3) return Math.round(ms / 60e3) + 'm';
+  return (ms / 3600e3).toFixed(1) + 'h';
+}
+function hash(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (h >>> 0) / 4294967296;
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = {
+  get(k) { try { return localStorage.getItem('rivulet.' + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem('rivulet.' + k, v); } catch {} },
+};
+
+// ---------------------------------------------------------------- themes
+const THEMES = {
+  neon: {
+    font: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', mono: 'ui-monospace, Menlo, Consolas, monospace',
+    text: '#efe9ff', muted: '#9a8fc7', card: 'rgba(22,11,48,.55)', cardEdge: 'rgba(167,139,250,.20)',
+    lane: 'rgba(124,77,255,.13)', laneEdge: 'rgba(167,139,250,.42)', node: '#160b33',
+    palette: ['#22d3ee', '#f472b6', '#a3e635', '#facc15', '#fb923c', '#c084fc'],
+    ok: '#2bf5a0', warn: '#ffb020', hot: '#ff3d7f', play: '#ffffff',
+    glow: true, radius: 16, gap: 14, cons: 28, laneH: 22, box: [128, 40],
+  },
+  clean: {
+    font: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', mono: 'ui-monospace, Menlo, Consolas, monospace',
+    text: '#1b1e2b', muted: '#6b7185', card: '#ffffff', cardEdge: '#e2e6ef',
+    lane: '#f0f3f9', laneEdge: '#dfe4ee', node: '#ffffff',
+    palette: ['#3b6cf6', '#14a37f', '#e8833a', '#8b5cf6', '#e5484d', '#0ea5c6'],
+    ok: '#14a37f', warn: '#d98a1c', hot: '#e5484d', play: '#1b1e2b',
+    shadow: true, radius: 14, gap: 14, cons: 28, laneH: 22, box: [128, 40],
+  },
+  cockpit: {
+    font: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+    text: '#b8ffcc', muted: '#4f9d6a', card: 'rgba(3,18,10,.85)', cardEdge: 'rgba(80,255,140,.26)',
+    lane: 'rgba(80,255,140,.05)', laneEdge: 'rgba(80,255,140,.32)', node: '#03140b',
+    palette: ['#3cff7a', '#2ee6ff', '#ffb000', '#ff6ad5', '#f2ff3c', '#ff7a3c'],
+    ok: '#3cff7a', warn: '#ffb000', hot: '#ff4a2e', play: '#ffb000',
+    dense: true, ticks: true, upper: true, radius: 2, gap: 8, cons: 21, laneH: 16, box: [136, 32],
+  },
+};
+let themeName = THEMES[params.get('theme')] ? params.get('theme') : (THEMES[store.get('theme')] ? store.get('theme') : 'neon');
+let T = THEMES[themeName];
+let windowMs = +(store.get('window') || 30000);
+let paused = false, pausedAt = 0;
+
+// Glow sprites, one per color, drawn additively in the neon theme.
+const sprites = new Map();
+function sprite(color) {
+  let c = sprites.get(color);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grd.addColorStop(0, color); grd.addColorStop(0.25, color + 'aa'); grd.addColorStop(1, color + '00');
+  g.fillStyle = grd; g.fillRect(0, 0, 32, 32);
+  sprites.set(color, c);
+  return c;
+}
+
+// ---------------------------------------------------------------- model
+// Live and simulated feeds both produce the same two messages (topology,
+// entries); everything visual is derived from them here.
+const MAX_ENTRIES = 4000, CLUSTER_MAX = 24;
+const model = { mode: 'sim', live: null, offset: 0, synced: false, streams: new Map(), sparks: [], bursts: [], redis: 'up' };
+let streamSeq = 0;
+
+const wallNow = () => (paused ? pausedAt : Date.now());
+const redisNow = () => wallNow() + model.offset;
+
+function ensureStream(key) {
+  let S = model.streams.get(key);
+  if (!S) {
+    S = { key, n: streamSeq++, length: 0, lastId: null, firstId: null, entriesAdded: null, groups: new Map(),
+      entries: [], arrivals: [], rate: 0, pulse: 0, skipped: 0 };
+    model.streams.set(key, S);
+  }
+  return S;
+}
+
+function applyEntries(m) {
+  const S = ensureStream(m.stream);
+  const t = performance.now(), rn = redisNow();
+  let fresh = 0;
+  for (const [id, f] of m.entries) {
+    const ms = idMs(id), old = rn - ms > 1500;
+    S.entries.push({ id, ms, f: f || null, s: hash(id), t: old ? -1e9 : t, x: -99, y: -99 });
+    if (!old) fresh++;
+    if (!S.lastId || cmpId(id, S.lastId) > 0) S.lastId = id;
+  }
+  if (S.entries.length > MAX_ENTRIES) S.entries.splice(0, S.entries.length - MAX_ENTRIES);
+  if (fresh) { S.arrivals.push([Date.now(), fresh]); S.pulse = 1; }
+  if (m.skipped) S.skipped++;
+}
+
+function applyTopology(m) {
+  if (m.time) {
+    const off = m.time - Date.now();
+    model.offset = model.synced ? model.offset * 0.9 + off * 0.1 : off;
+    model.synced = true;
+  }
+  const seen = new Set();
+  for (const st of m.streams) {
+    seen.add(st.key);
+    const S = ensureStream(st.key);
+    S.length = st.length; S.firstId = st.firstId; S.entriesAdded = st.entriesAdded;
+    if (st.lastId && (!S.lastId || cmpId(st.lastId, S.lastId) > 0)) S.lastId = st.lastId;
+    const gseen = new Set();
+    st.groups.forEach((g) => {
+      gseen.add(g.name);
+      let G = S.groups.get(g.name);
+      const fresh = !G;
+      if (fresh) { G = { name: g.name, n: S.groups.size, consumers: new Map(), px: null, gauge: 0, pel: [] }; S.groups.set(g.name, G); }
+      const prevLD = G.lastDeliveredId, prevRead = G.entriesRead;
+      G.lastDeliveredId = g.lastDeliveredId; G.lag = g.lag; G.pending = g.pending; G.entriesRead = g.entriesRead; G.pel = g.pel || [];
+
+      const readers = [], cseen = new Set();
+      for (const c of g.consumers || []) {
+        cseen.add(c.name);
+        const C = G.consumers.get(c.name);
+        if (!C) {
+          G.consumers.set(c.name, { name: c.name, pending: c.pending, idle: c.idle, inactive: c.inactive, pulse: 0, cluster: [], incoming: 0 });
+          continue;
+        }
+        const dp = c.pending - C.pending;
+        if (dp > 0 || c.idle < C.idle) readers.push([C, Math.max(dp, 0)]);
+        C.pending = c.pending; C.idle = c.idle; C.inactive = c.inactive;
+      }
+      for (const k of G.consumers.keys()) if (!cseen.has(k)) G.consumers.delete(k);
+
+      if (fresh || !prevLD || cmpId(g.lastDeliveredId, prevLD) <= 0) return;
+      let delivered = g.entriesRead != null && prevRead != null ? g.entriesRead - prevRead : 0;
+      if (delivered <= 0) delivered = Math.max(1, readers.reduce((a, r) => a + r[1], 0));
+      const targets = readers.length ? readers : [...G.consumers.values()].map((C) => [C, 0]);
+      spawnSparks(S, G, targets, delivered);
+    });
+    for (const k of S.groups.keys()) if (!gseen.has(k)) S.groups.delete(k);
+  }
+  for (const k of model.streams.keys()) if (!seen.has(k)) model.streams.delete(k);
+}
+
+function spawnSparks(S, G, targets, delivered) {
+  if (!targets.length) return;
+  const n = Math.min(delivered, 8);
+  const total = targets.reduce((a, [, w]) => a + (w || 1), 0);
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    let r = ((i + 0.5) / n) * total, C = targets[0][0];
+    for (const [c, w] of targets) { r -= w || 1; if (r <= 0) { C = c; break; } }
+    C.incoming++;
+    model.sparks.push({ S, G, C, t0: t0 + i * 55, dur: 650 + Math.random() * 200 });
+  }
+}
+
+function handle(m) {
+  switch (m.type) {
+    case 'hello': goLive(m); break;
+    case 'topology': applyTopology(m); break;
+    case 'entries': applyEntries(m); break;
+    case 'status': model.redis = m.redis; renderMode(); break;
+    case 'inspect': if (drawer.key === m.stream) drawer.remote = m.entries, renderDrawer(); break;
+  }
+}
+
+// ---------------------------------------------------------------- live feed
+let ws = null, wsState = 'off';
+function wsUrl() {
+  if (params.get('ws')) return params.get('ws');
+  if (!CFG.ws || !/^https?:$/.test(location.protocol)) return null;
+  const u = new URL('ws', location.href);
+  u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return u.href;
+}
+function connect(url, attempt = 0) {
+  ws = new WebSocket(url);
+  ws.onopen = () => { attempt = 0; wsState = 'open'; };
+  ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  ws.onclose = () => {
+    wsState = model.mode === 'live' ? 'retry' : 'off';
+    renderMode();
+    setTimeout(() => connect(url, attempt + 1), Math.min(8000, 400 * 2 ** attempt));
+  };
+}
+function goLive(hello) {
+  sim?.stop(); sim = null;
+  model.mode = 'live'; model.live = hello; model.redis = 'up'; model.synced = false;
+  model.streams.clear(); model.sparks.length = 0; model.bursts.length = 0;
+  wsState = 'open';
+  renderMode();
+}
+function renderMode() {
+  const el = $('#mode'), span = el.querySelector('span');
+  el.className = 'badge';
+  if (model.mode === 'sim') {
+    span.textContent = 'Simulator';
+    return;
+  }
+  const L = model.live;
+  $('#hint').innerHTML = `Read-only view of <code>${esc(L.redis.label)}</code>` +
+    (L.redis.version ? ` · Redis ${esc(L.redis.version)}` : '') +
+    (L.redis.version && parseInt(L.redis.version) < 7 ? ' · lag needs Redis 7+' : '') +
+    (L.redacted ? ' · field values redacted' : '') + ' · click a stream for recent entries';
+  if (wsState === 'retry') { el.classList.add('down'); span.textContent = 'Reconnecting…'; }
+  else if (model.redis === 'down') { el.classList.add('down'); span.textContent = `${L.redis.label} unreachable`; }
+  else { el.classList.add('live'); span.textContent = `Live · ${L.redis.label}`; }
+}
+
+// ---------------------------------------------------------------- simulator
+const rnd = (n) => Math.floor(Math.random() * n);
+const pick = (a) => a[rnd(a.length)];
+const rid = () => Math.random().toString(36).slice(2, 9);
+const SKUS = ['kbd-75', 'mouse-pro', 'usb-c-hub', 'monitor-27', 'desk-mat', 'webcam-4k'];
+const SIM = [
+  { key: 'orders', rate: 7, amp: 0.5, period: 23000,
+    fields: () => ({ order_id: 'ord_' + rid(), sku: pick(SKUS), qty: 1 + rnd(4), total: (5 + Math.random() * 240).toFixed(2), currency: 'EUR' }),
+    groups: [['billing', [['billing-1', 120, 40], ['billing-2', 120, 40]]],
+      ['fulfillment', [['ship-a', 200, 90], ['ship-b', 200, 90], ['ship-c', 200, 90]]],
+      ['analytics', [['etl-0', 500, 230]]]] },
+  { key: 'payments', rate: 2.5, amp: 0.4, period: 17000,
+    fields: () => ({ payment_id: 'pay_' + rid(), method: pick(['card', 'sepa', 'paypal']), amount: (Math.random() * 300).toFixed(2), status: pick(['captured', 'captured', 'authorized', 'declined']) }),
+    groups: [['ledger', [['ledger-1', 150, 110], ['ledger-2', 150, 110]]], ['fraud-check', [['fraud-scan', 300, 260]]]] },
+  { key: 'user-events', rate: 15, amp: 0.6, period: 31000, bursty: true,
+    fields: () => ({ user: 'u' + rnd(9000), event: pick(['page_view', 'page_view', 'click', 'search', 'add_to_cart']), path: pick(['/', '/shop', '/cart', '/p/' + rnd(400)]) }),
+    groups: [['search-indexer', [['idx-1', 100, 45], ['idx-2', 100, 45], ['idx-3', 100, 45]]]] },
+  { key: 'notifications', rate: 1.3, amp: 0.3, period: 29000,
+    fields: () => ({ to: 'u' + rnd(9000), channel: pick(['email', 'push', 'push']), template: pick(['receipt', 'shipped', 'promo']) }),
+    groups: [['mailer', [['smtp-1', 400, 320]]], ['push', [['apns', 250, 80], ['fcm', 250, 80]]]] },
+  { key: 'audit.log', rate: 0.7, amp: 0.2, period: 40000,
+    fields: () => ({ actor: pick(['admin', 'deploy-bot', 'svc-api']), action: pick(['login', 'config.update', 'key.rotate', 'deploy']) }),
+    groups: [] },
+];
+
+class Simulator {
+  constructor(emit) {
+    this.emit = emit;
+    this.streams = SIM.map((spec) => ({
+      spec, entries: [], base: 0, total: 0, lastMs: 0, seq: 0, burstUntil: 0, nextBurst: 0,
+      groups: spec.groups.map(([name, cs]) => ({
+        name, read: 0, ld: '0-0', boostUntil: 0, nextBoost: 0,
+        consumers: cs.map(([cname, every, proc]) => ({ name: cname, every, proc, pending: [], nextAt: 0, seen: 0, ok: 0, stallUntil: 0 })),
+      })),
+    }));
+    this.nextStall = 0;
+  }
+  start() {
+    // Fast-forward so the lanes are already full on first paint.
+    const now = Date.now(), from = now - 45000;
+    const batch = new Map();
+    for (const s of this.streams) for (const g of s.groups) for (const c of g.consumers) c.nextAt = c.seen = c.ok = from;
+    this.nextStall = from + 9000;
+    for (let t = from; t < now; t += 50) this.step(t, 50, batch);
+    for (const [key, entries] of batch) this.emit({ type: 'entries', stream: key, entries });
+    this.topology(now);
+    this.last = now;
+    this.timer = setInterval(() => {
+      const t = Date.now(), out = new Map();
+      this.step(t, t - this.last, out);
+      this.last = t;
+      for (const [key, entries] of out) this.emit({ type: 'entries', stream: key, entries });
+    }, 50);
+    this.topoTimer = setInterval(() => this.topology(Date.now()), 400);
+  }
+  stop() { clearInterval(this.timer); clearInterval(this.topoTimer); }
+  entryAt(s, idx) { return s.entries[idx - s.base]; }
+  step(now, dt, out) {
+    for (const s of this.streams) {
+      const sp = s.spec;
+      if (sp.bursty && now > s.nextBurst) { s.burstUntil = now + 2500; s.nextBurst = now + 16000 + Math.random() * 12000; }
+      let lambda = sp.rate * (1 + sp.amp * Math.sin((2 * Math.PI * now) / sp.period)) * (now < s.burstUntil ? 4 : 1);
+      // Poisson arrivals within this tick
+      let n = 0, L = Math.exp(-Math.max(0, lambda) * dt / 1000), p = Math.random();
+      while (p > L && n < 200) { n++; p *= Math.random(); }
+      for (let i = 0; i < n; i++) {
+        let ms = Math.round(now - dt + ((i + 1) / (n + 1)) * dt);
+        if (ms <= s.lastMs) { ms = s.lastMs; s.seq++; } else { s.lastMs = ms; s.seq = 0; }
+        const id = `${ms}-${s.seq}`, f = sp.fields();
+        s.entries.push({ id, f });
+        s.total++;
+        if (!out.has(sp.key)) out.set(sp.key, []);
+        out.get(sp.key).push([id, f]);
+      }
+      if (s.entries.length > 5000) { const d = s.entries.length - 5000; s.entries.splice(0, d); s.base += d; }
+
+      for (const g of s.groups) {
+        if (g.name === 'analytics' && now > g.nextBoost) { g.boostUntil = now + 9000; g.nextBoost = now + 26000 + Math.random() * 8000; }
+        const speed = g.name === 'analytics' && now < g.boostUntil ? 4 : 1;
+        if (g.read < s.base) g.read = s.base; // trimmed past us (MAXLEN)
+        for (const c of g.consumers) {
+          if (now < c.stallUntil) continue;
+          while (c.pending.length && c.pending[0].due <= now) { c.pending.shift(); c.ok = now; }
+          if (now < c.nextAt) continue;
+          c.nextAt = now + c.every * (0.7 + Math.random() * 0.6);
+          c.seen = now;
+          const room = Math.min(5, 10 - c.pending.length, s.total - g.read);
+          let due = Math.max(now, c.pending.length ? c.pending[c.pending.length - 1].due : now);
+          for (let k = 0; k < room; k++) {
+            const e = this.entryAt(s, g.read++);
+            due += c.proc / speed * (0.6 + Math.random() * 0.8);
+            c.pending.push({ id: e.id, at: now, due });
+            g.ld = e.id;
+          }
+        }
+      }
+    }
+    if (now > this.nextStall) {
+      const pool = this.streams.flatMap((s) => s.groups.filter((g) => g.consumers.length > 1).flatMap((g) => g.consumers));
+      const c = pick(pool);
+      c.stallUntil = now + 7000 + Math.random() * 6000;
+      this.nextStall = now + 14000 + Math.random() * 10000;
+    }
+  }
+  topology(now) {
+    this.emit({
+      type: 'topology', time: now,
+      streams: this.streams.map((s) => ({
+        key: s.spec.key, length: s.entries.length, lastId: s.entries.length ? s.entries[s.entries.length - 1].id : '0-0',
+        firstId: s.entries[0]?.id ?? null, entriesAdded: s.total,
+        groups: s.groups.map((g) => {
+          const pel = g.consumers.flatMap((c) => c.pending.map((p) => ({ id: p.id, consumer: c.name, idle: now - p.at, deliveries: 1 })))
+            .sort((a, b) => cmpId(a.id, b.id));
+          return {
+            name: g.name, pending: pel.length, lastDeliveredId: g.ld, entriesRead: g.read, lag: s.total - g.read,
+            consumers: g.consumers.map((c) => ({ name: c.name, pending: c.pending.length, idle: now - c.seen, inactive: now - c.ok })),
+            pel: pel.slice(0, 20),
+          };
+        }),
+      })),
+    });
+  }
+}
+
+// ---------------------------------------------------------------- layout
+const canvas = $('#c'), ctx = canvas.getContext('2d');
+let W = 0, H = 0, dpr = 1;
+
+function streamsInOrder() { return [...model.streams.values()].sort((a, b) => a.n - b.n); }
+
+function layout() {
+  const pad = W < 520 ? 10 : 16, wide = W >= 860, cs = T.cons, [bw, bh] = T.box;
+  let y = 6;
+  for (const S of streamsInOrder()) {
+    const gs = [...S.groups.values()];
+    const L = (S.L = { pad, wide, y, x: pad, w: W - pad * 2 });
+    if (wide) {
+      let blocks = 0;
+      for (const G of gs) blocks += Math.max(1, G.consumers.size) * cs + 14;
+      L.h = Math.max(T.dense ? 92 : 118, blocks + 44);
+      L.laneY = y + Math.max(L.h / 2 + 8, 62);
+      L.xP = pad + 30; L.xL = L.xP + 24;
+      L.xR = Math.max(Math.round(W * 0.45), W - pad - 470);
+      L.xB = L.xR + 52; L.xC = L.xB + bw + 52;
+      let top = y + (L.h - blocks) / 2 + 12;
+      for (const G of gs) {
+        const n = Math.max(1, G.consumers.size), h = n * cs;
+        G.bx = L.xB; G.by = top + h / 2 - bh / 2; G.gy = top + h / 2;
+        let i = 0;
+        for (const C of G.consumers.values()) { C.cx = L.xC; C.cy = top + cs / 2 + i++ * cs; }
+        top += h + 14;
+      }
+    } else {
+      L.xP = pad + 22; L.xL = L.xP + 20; L.xR = W - pad - 14; L.laneY = y + 56;
+      let top = L.laneY + 34;
+      const bwN = Math.min(bw + 40, L.w - 28);
+      for (const G of gs) {
+        G.bx = pad + 12; G.by = top; G.gy = top + bh / 2; G.bwN = bwN;
+        let i = 0;
+        for (const C of G.consumers.values()) { C.cx = pad + 70; C.cy = top + bh + 10 + cs / 2 + i++ * cs; }
+        top += bh + 10 + Math.max(0, G.consumers.size) * cs + 10;
+      }
+      L.h = Math.max(T.dense ? 86 : 100, top - y + 2);
+    }
+    y += L.h + T.gap;
+  }
+  return y + 4;
+}
+
+function resize() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = canvas.parentElement.clientWidth;
+  const h = Math.max(200, layout());
+  if (h !== H || canvas.width !== Math.round(W * dpr)) {
+    H = h;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    canvas.style.height = H + 'px';
+  }
+}
+
+// ---------------------------------------------------------------- drawing
+const font = (size, weight = 400, mono = false) => `${weight} ${size}px ${mono ? T.mono : T.font}`;
+const up = (s) => (T.upper ? s.toUpperCase() : s);
+function rrect(x, y, w, h, r) {
+  r = Math.min(r, h / 2, w / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function mix(a, b, t) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const A = p(a), B = p(b);
+  return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+function lagColor(f) { return f < 0.5 ? mix(T.ok, T.warn, f * 2) : mix(T.warn, T.hot, (f - 0.5) * 2); }
+function clip(text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  while (text.length > 1 && ctx.measureText(text + '…').width > maxW) text = text.slice(0, -1);
+  return text + '…';
+}
+function dot(x, y, r, color, glow = 1) {
+  if (T.glow) {
+    const s = r * 5 * glow;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(sprite(color), x - s / 2, y - s / 2, s, s);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+}
+// Cubic segments as [x0,y0,x1,y1,x2,y2,x3,y3]
+const hCurve = (ax, ay, bx, by) => { const m = (bx - ax) * 0.5; return [ax, ay, ax + m, ay, bx - m, by, bx, by]; };
+const vCurve = (ax, ay, bx, by) => { const m = (by - ay) * 0.5; return [ax, ay, ax, ay + m, bx, by - m, bx, by]; };
+const elbow = (ax, ay, bx, by) => [ax, ay, ax, ay + (by - ay) * 0.9, ax + (bx - ax) * 0.1, by, bx, by];
+const line = (ax, ay, bx, by) => [ax, ay, ax + (bx - ax) / 3, ay + (by - ay) / 3, ax + (bx - ax) * 2 / 3, ay + (by - ay) * 2 / 3, bx, by];
+function bez(p, t) {
+  const u = 1 - t;
+  return [u * u * u * p[0] + 3 * u * u * t * p[2] + 3 * u * t * t * p[4] + t * t * t * p[6],
+    u * u * u * p[1] + 3 * u * u * t * p[3] + 3 * u * t * t * p[5] + t * t * t * p[7]];
+}
+const segLen = (p) => (Math.hypot(p[6] - p[0], p[7] - p[1]) + Math.hypot(p[2] - p[0], p[3] - p[1]) + Math.hypot(p[4] - p[2], p[5] - p[3]) + Math.hypot(p[6] - p[4], p[7] - p[5])) / 2;
+function strokeSeg(p) { ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.bezierCurveTo(p[2], p[3], p[4], p[5], p[6], p[7]); ctx.stroke(); }
+
+function groupColor(S, G) { return T.palette[(S.n + G.n + 1) % T.palette.length]; }
+function streamColor(S) { return T.palette[S.n % T.palette.length]; }
+function boxW(G, L) { return L.wide ? T.box[0] : G.bwN; }
+function caughtUp(S, G) { return G.lag === 0 || (G.lag == null && G.lastDeliveredId === S.lastId); }
+
+function sparkPath(sp) {
+  const { S, G, C } = sp, L = S.L, [, bh] = T.box, bw = boxW(G, L);
+  const px = G.px ?? L.xL;
+  if (L.wide) {
+    return [line(px, L.laneY, L.xR, L.laneY), hCurve(L.xR, L.laneY, G.bx, G.gy), line(G.bx, G.gy, G.bx + bw, G.gy), hCurve(G.bx + bw, G.gy, C.cx - 7, C.cy)];
+  }
+  return [vCurve(px, L.laneY + T.laneH / 2, G.bx + bw / 2, G.by), line(G.bx + bw / 2, G.by, G.bx + 16, G.by + bh), elbow(G.bx + 16, G.by + bh, C.cx - 7, C.cy)];
+}
+function pointOnPath(segs, t) {
+  const lens = segs.map(segLen), total = lens.reduce((a, b) => a + b, 0) || 1;
+  let d = t * total;
+  for (let i = 0; i < segs.length; i++) {
+    if (d <= lens[i] || i === segs.length - 1) return bez(segs[i], Math.min(1, d / (lens[i] || 1)));
+    d -= lens[i];
+  }
+}
+
+let hits = [], visible = [];
+let lastFrame = performance.now();
+
+function frame() {
+  const pnow = performance.now(), dt = Math.min(0.05, (pnow - lastFrame) / 1000);
+  lastFrame = pnow;
+  resize();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  hits = []; visible = [];
+  const rn = redisNow();
+  for (const S of streamsInOrder()) drawStream(S, rn, pnow, dt);
+  drawSparks(pnow);
+  drawBursts(pnow);
+  $('#empty').classList.toggle('show', model.streams.size === 0);
+  requestAnimationFrame(frame);
+}
+
+function drawStream(S, rn, pnow, dt) {
+  const L = S.L, { x, y, w, h, laneY, xP, xL, xR } = L, lh = T.laneH;
+  const col = streamColor(S);
+
+  // card
+  if (T.shadow) { ctx.save(); ctx.shadowColor = 'rgba(30,40,80,.08)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4; }
+  rrect(x, y, w, h, T.radius); ctx.fillStyle = T.card; ctx.fill();
+  if (T.shadow) ctx.restore();
+  ctx.strokeStyle = T.cardEdge; ctx.lineWidth = 1; ctx.stroke();
+  if (T.dense) { // corner brackets
+    ctx.strokeStyle = T.laneEdge; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (const [cx, cy, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
+      ctx.moveTo(cx + sx * 10, cy + sy * 0.5); ctx.lineTo(cx + sx * 0.5, cy + sy * 0.5); ctx.lineTo(cx + sx * 0.5, cy + sy * 10);
+    }
+    ctx.stroke();
+  }
+
+  // header
+  const now = Date.now();
+  while (S.arrivals.length && now - S.arrivals[0][0] > 5000) S.arrivals.shift();
+  S.rate = S.arrivals.reduce((a, r) => a + r[1], 0) / 5;
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = font(T.dense ? 12 : 13.5, 650);
+  ctx.fillStyle = T.text;
+  const title = clip(up(S.key), xR - xL - 120);
+  ctx.fillText(title, x + 14, y + 22);
+  const tw = ctx.measureText(title).width;
+  ctx.font = font(T.dense ? 11 : 12, 400, T.dense);
+  ctx.fillStyle = T.muted;
+  const meta = T.dense
+    ? `LEN ${fmtN(S.length)}  RATE ${S.rate.toFixed(1)}/S  GRP ${S.groups.size}  LAST ${S.lastId ?? '–'}`
+    : `${fmtN(S.length)} entries · ${S.rate < 10 ? S.rate.toFixed(1) : fmtN(S.rate)}/s${S.groups.size ? '' : ' · no consumer groups'}${S.skipped ? ' · sampling' : ''}`;
+  ctx.fillText(clip(meta, (L.wide ? xR : W - x - 14) - (x + 28 + tw)), x + 26 + tw, y + 22);
+  hits.push({ kind: 'stream', S, x0: x, y0: y, x1: L.wide ? xR : x + w, y1: y + 30 });
+
+  // producer
+  S.pulse = Math.max(0, S.pulse - dt * 2.5);
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.fillStyle = T.node;
+  ctx.beginPath(); ctx.arc(xP, laneY, 9, 0, 6.2832); ctx.fill(); ctx.stroke();
+  if (S.pulse > 0 && !reduceMotion) {
+    ctx.globalAlpha = S.pulse * 0.8;
+    ctx.beginPath(); ctx.arc(xP, laneY, 9 + (1 - S.pulse) * 10, 0, 6.2832); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  dot(xP, laneY, 3 + S.pulse * 1.5, col, 0.8);
+  hits.push({ kind: 'stream', S, x0: xP - 12, y0: laneY - 12, x1: xP + 12, y1: laneY + 12 });
+
+  // lane
+  rrect(xL, laneY - lh / 2, xR - xL, lh, T.dense ? 1 : lh / 2);
+  ctx.fillStyle = T.lane; ctx.fill();
+  ctx.strokeStyle = T.laneEdge; ctx.lineWidth = 1; ctx.stroke();
+  hits.push({ kind: 'stream', S, x0: xL, y0: laneY - lh / 2 - 4, x1: xR, y1: laneY + lh / 2 + 4, low: true });
+
+  // time axis
+  ctx.font = font(10, 400, true);
+  ctx.fillStyle = T.muted;
+  ctx.textBaseline = 'top';
+  const ticks = T.ticks ? 6 : 2;
+  for (let i = 0; i <= ticks; i += T.ticks ? 1 : 2) {
+    const tx = xL + (i / ticks) * (xR - xL);
+    const label = i === 0 ? up('now') : '-' + fmtMs((windowMs * i) / ticks);
+    ctx.textAlign = i === 0 ? 'left' : i === ticks ? 'right' : 'center';
+    ctx.fillText(label, tx, laneY + lh / 2 + 5);
+    if (T.ticks && i > 0 && i < ticks) { ctx.fillRect(tx, laneY - lh / 2, 1, 3); ctx.fillRect(tx, laneY + lh / 2 - 3, 1, 3); }
+  }
+  ctx.textAlign = 'left';
+
+  // group cursors (smoothed) and backlog band
+  const groups = [...S.groups.values()];
+  let minLD = null, maxLagX = xL;
+  for (const G of groups) {
+    const caught = caughtUp(S, G);
+    const age = rn - idMs(G.lastDeliveredId || '0-0');
+    const f = caught ? 0 : Math.min(1, Math.max(0, age) / windowMs);
+    G.over = !caught && age > windowMs;
+    G.caught = caught;
+    const tx = xL + f * (xR - xL);
+    G.px = G.px == null ? tx : G.px + (tx - G.px) * Math.min(1, dt * 7);
+    if (!caught) maxLagX = Math.max(maxLagX, G.px);
+    if (!minLD || cmpId(G.lastDeliveredId, minLD) < 0) minLD = G.lastDeliveredId;
+    const lagF = G.lag == null ? (caught ? 0 : 0.5) : Math.min(1, Math.log10(1 + G.lag) / 4);
+    G.gauge += (lagF - G.gauge) * Math.min(1, dt * 4);
+  }
+  if (maxLagX > xL + 4) {
+    const grd = ctx.createLinearGradient(xL, 0, maxLagX, 0);
+    grd.addColorStop(0, T.hot + '00'); grd.addColorStop(1, T.hot + (T.glow ? '40' : '26'));
+    rrect(xL, laneY - lh / 2, maxLagX - xL, lh, T.dense ? 1 : lh / 2);
+    ctx.fillStyle = grd; ctx.fill();
+  }
+
+  // entries
+  const pel = new Set();
+  for (const G of groups) for (const p of G.pel) pel.add(p.id);
+  const E = S.entries, span = xR - xL;
+  let drop = 0;
+  while (drop < E.length && rn - E[drop].ms > windowMs * 1.3) drop++;
+  if (drop) E.splice(0, drop);
+  const trail = T.glow ? Math.min(14, (span / windowMs) * 90) : 0;
+  for (let i = E.length - 1; i >= 0; i--) {
+    const e = E[i], age = Math.max(0, rn - e.ms);
+    if (age > windowMs) break;
+    let ex = xL + (age / windowMs) * span, ey = laneY + (e.s - 0.5) * (lh - 8);
+    const k = (pnow - e.t) / 380;
+    if (k < 1 && !reduceMotion) { const q = 1 - (1 - Math.max(0, k)) ** 3; ex = xP + (ex - xP) * q; ey = laneY + (ey - laneY) * q; }
+    const stuck = pel.has(e.id);
+    if (stuck && !reduceMotion) { ex += Math.sin(pnow * 0.06 + e.s * 90) * 1.6; ey += Math.cos(pnow * 0.07 + e.s * 50) * 1.2; }
+    const undelivered = minLD && age > 1500 && cmpId(e.id, minLD) > 0;
+    const c = stuck ? T.hot : undelivered ? T.warn : col;
+    e.x = ex; e.y = ey;
+    visible.push(e); e.S = S;
+    if (T.dense) {
+      ctx.fillStyle = c;
+      ctx.fillRect(ex - 0.75, ey - 3, 1.5, 6);
+      if (stuck) { ctx.strokeStyle = T.hot; ctx.strokeRect(ex - 3, ey - 4.5, 6, 9); }
+    } else {
+      if (trail > 1) { ctx.strokeStyle = c + '55'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(ex - trail, ey); ctx.lineTo(ex, ey); ctx.stroke(); }
+      dot(ex, ey, k < 1 ? 2.4 + (1 - k) * 2 : 2.4, c, stuck ? 1.4 : 1);
+      if (stuck) { ctx.strokeStyle = T.hot; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(ex, ey, 5, 0, 6.2832); ctx.stroke(); }
+    }
+  }
+
+  // cursors on top of entries
+  for (const G of groups) {
+    const gc = groupColor(S, G), px = G.px;
+    ctx.strokeStyle = G.caught ? gc : T.play; ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, laneY - lh / 2 - 5); ctx.lineTo(px, laneY + lh / 2 + 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px - 4, laneY - lh / 2 - 9); ctx.lineTo(px + 4, laneY - lh / 2 - 9); ctx.lineTo(px, laneY - lh / 2 - 4); ctx.fill();
+    if (!G.caught) {
+      ctx.font = font(10.5, 600, T.dense);
+      const label = G.over ? `${up(G.name)} » ${fmtMs(rn - idMs(G.lastDeliveredId))} behind` : `${up(G.name)} · ${fmtN(G.lag)}`;
+      const lw = ctx.measureText(label).width;
+      const lx = Math.min(Math.max(px - lw / 2, xL), xR - lw);
+      ctx.fillStyle = T.text;
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(label, lx, laneY - lh / 2 - 10);
+    }
+    hits.push({ kind: 'group', S, G, x0: px - 5, y0: laneY - lh / 2 - 12, x1: px + 5, y1: laneY + lh / 2 + 3 });
+  }
+  ctx.textBaseline = 'alphabetic';
+
+  for (const G of groups) drawGroup(S, G, L, rn, pnow, dt);
+}
+
+function drawGroup(S, G, L, rn, pnow, dt) {
+  const gc = groupColor(S, G), [, bh] = T.box, bw = boxW(G, L), lh = T.laneH;
+  // pipes
+  ctx.lineWidth = T.dense ? 1 : 1.5;
+  ctx.strokeStyle = gc + (T.glow ? '66' : '55');
+  if (L.wide) strokeSeg(hCurve(L.xR, L.laneY, G.bx, G.gy));
+  else { ctx.setLineDash([3, 3]); strokeSeg(vCurve(G.px ?? L.xL, L.laneY + lh / 2, G.bx + bw / 2, G.by)); ctx.setLineDash([]); }
+  for (const C of G.consumers.values()) {
+    ctx.strokeStyle = gc + '44';
+    strokeSeg(L.wide ? hCurve(G.bx + bw, G.gy, C.cx - 7, C.cy) : elbow(G.bx + 16, G.by + bh, C.cx - 7, C.cy));
+  }
+
+  // box
+  rrect(G.bx, G.by, bw, bh, T.dense ? 1 : 10);
+  ctx.fillStyle = T.node; ctx.fill();
+  ctx.strokeStyle = gc + (T.glow ? 'cc' : '99'); ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.font = font(T.dense ? 11 : 12, 650);
+  ctx.fillStyle = T.text;
+  ctx.textBaseline = 'alphabetic';
+  const lagTxt = G.lag == null ? (G.caught ? '✓' : 'lag ?') : G.lag === 0 ? '✓' : (T.dense ? 'LAG ' : '') + fmtN(G.lag);
+  ctx.font = font(T.dense ? 10.5 : 11.5, 600, true);
+  const lagW = ctx.measureText(lagTxt).width;
+  ctx.fillStyle = G.lag ? lagColor(G.gauge) : T.ok;
+  ctx.fillText(lagTxt, G.bx + bw - 9 - lagW, G.by + (T.dense ? 14 : 17));
+  ctx.font = font(T.dense ? 11 : 12, 650);
+  ctx.fillStyle = T.text;
+  ctx.fillText(clip(up(G.name), bw - 26 - lagW), G.bx + 9, G.by + (T.dense ? 14 : 17));
+  // lag gauge
+  const gx = G.bx + 9, gy = G.by + bh - (T.dense ? 9 : 12), gw = bw - 18;
+  rrect(gx, gy, gw, 4, 2); ctx.fillStyle = T.lane; ctx.fill();
+  if (G.gauge > 0.01) {
+    rrect(gx, gy, Math.max(4, gw * G.gauge), 4, 2);
+    ctx.fillStyle = lagColor(G.gauge); ctx.fill();
+  }
+  hits.push({ kind: 'group', S, G, x0: G.bx, y0: G.by, x1: G.bx + bw, y1: G.by + bh });
+
+  for (const C of G.consumers.values()) drawConsumer(S, G, C, gc, pnow, dt);
+}
+
+function drawConsumer(S, G, C, gc, pnow, dt) {
+  const { cx, cy } = C;
+  C.pulse = Math.max(0, C.pulse - dt * 2.2);
+  const stuck = C.pending > 0 && C.idle > 5000;
+
+  // pending cluster: floating just before the consumer, shaking while it sits unacked
+  const target = Math.min(C.pending, CLUSTER_MAX);
+  let pops = 0;
+  while (C.cluster.length > target && pops++ < 3) {
+    const p = C.cluster.pop();
+    if (p.x != null) burst(p.x, p.y, T.ok, 5);
+  }
+  if (C.cluster.length + C.incoming < target) C.cluster.push({ b: pnow });
+  const ax = cx - 26, amp = reduceMotion ? 0 : Math.min(2.6, 0.3 + C.idle / 3500);
+  const pc = stuck ? T.hot : T.warn;
+  C.cluster.forEach((p, k) => {
+    const a = k * 2.399, r = 1.8 + 2.2 * Math.sqrt(k);
+    const appear = Math.min(1, (pnow - p.b) / 250);
+    p.x = ax + Math.cos(a) * r * 1.5 + Math.sin(pnow * 0.05 + k * 7) * amp;
+    p.y = cy + Math.sin(a) * r * 0.75 + Math.cos(pnow * 0.061 + k * 5) * amp * 0.8;
+    if (T.dense) { ctx.fillStyle = pc; ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3); }
+    else dot(p.x, p.y, 1.9 * appear, pc, 0.8);
+  });
+  if (C.pending > CLUSTER_MAX) {
+    ctx.font = font(9.5, 600, true); ctx.fillStyle = pc;
+    ctx.fillText('+' + fmtN(C.pending - CLUSTER_MAX), ax - 12, cy - 11);
+  }
+
+  // node
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = stuck ? T.hot : gc;
+  ctx.fillStyle = T.node;
+  ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, 6.2832); ctx.fill(); ctx.stroke();
+  if (C.pulse > 0) {
+    dot(cx, cy, 2 + C.pulse * 2.5, gc, 1.2);
+    if (!reduceMotion) {
+      ctx.globalAlpha = C.pulse; ctx.strokeStyle = gc;
+      ctx.beginPath(); ctx.arc(cx, cy, 6.5 + (1 - C.pulse) * 9, 0, 6.2832); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // label
+  const maxW = W - S.L.pad - 12 - (cx + 13);
+  ctx.textBaseline = 'middle';
+  if (T.dense) {
+    ctx.font = font(11, 600); ctx.fillStyle = stuck ? T.hot : T.text;
+    const name = clip(up(C.name), Math.min(110, maxW));
+    ctx.fillText(name, cx + 13, cy);
+    ctx.font = font(10.5, 400); ctx.fillStyle = T.muted;
+    ctx.fillText(clip(`P:${fmtN(C.pending)} IDLE:${fmtMs(C.idle)}${C.inactive != null ? ' INACT:' + fmtMs(C.inactive) : ''}`, maxW - ctx.measureText(name).width - 10), cx + 23 + ctx.measureText(name).width, cy);
+  } else {
+    ctx.font = font(12, 550); ctx.fillStyle = stuck ? T.hot : T.text;
+    const name = clip(C.name, Math.min(130, maxW));
+    ctx.fillText(name, cx + 13, cy);
+    const nw = ctx.measureText(name).width;
+    ctx.font = font(11, 400); ctx.fillStyle = T.muted;
+    const info = C.pending ? `${fmtN(C.pending)} pending · idle ${fmtMs(C.idle)}` : `idle ${fmtMs(C.idle)}`;
+    ctx.fillText(clip(info, maxW - nw - 10), cx + 21 + nw, cy);
+  }
+  ctx.textBaseline = 'alphabetic';
+  hits.push({ kind: 'consumer', S, G, C, x0: cx - 36, y0: cy - T.cons / 2, x1: Math.min(W, cx + 220), y1: cy + T.cons / 2 });
+}
+
+function drawSparks(pnow) {
+  for (let i = model.sparks.length - 1; i >= 0; i--) {
+    const sp = model.sparks[i];
+    const alive = sp.S.L && model.streams.get(sp.S.key) === sp.S && sp.S.groups.get(sp.G.name) === sp.G && sp.G.consumers.get(sp.C.name) === sp.C;
+    const t = (pnow - sp.t0) / sp.dur;
+    if (!alive || t >= 1) {
+      model.sparks.splice(i, 1);
+      sp.C.incoming = Math.max(0, sp.C.incoming - 1);
+      if (alive) {
+        sp.C.pulse = 1;
+        if (sp.C.cluster.length < Math.min(sp.C.pending, CLUSTER_MAX)) sp.C.cluster.push({ b: pnow });
+      }
+      continue;
+    }
+    if (t < 0) continue;
+    const segs = sparkPath(sp), e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    const c = groupColor(sp.S, sp.G);
+    for (let k = 3; k >= 0; k--) {
+      const [x, y] = pointOnPath(segs, Math.max(0, e - k * 0.025));
+      ctx.globalAlpha = 1 - k * 0.22;
+      if (T.dense) { ctx.fillStyle = c; ctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+      else dot(x, y, 2.6 - k * 0.4, c, 1.2);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function burst(x, y, color, n) {
+  if (reduceMotion) return;
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * 6.2832, v = 14 + Math.random() * 22;
+    model.bursts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t0, color });
+  }
+}
+function drawBursts(pnow) {
+  for (let i = model.bursts.length - 1; i >= 0; i--) {
+    const b = model.bursts[i], t = (pnow - b.t0) / 480;
+    if (t >= 1) { model.bursts.splice(i, 1); continue; }
+    ctx.globalAlpha = 1 - t;
+    const x = b.x + b.vx * t, y = b.y + b.vy * t;
+    if (T.dense) { ctx.fillStyle = b.color; ctx.fillRect(x - 1, y - 1, 2, 2); }
+    else dot(x, y, 1.4 * (1 - t) + 0.4, b.color, 0.7);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- header stats
+function renderStats() {
+  let rate = 0, lag = 0, pend = 0, lagKnown = false;
+  for (const S of model.streams.values()) {
+    rate += S.rate;
+    for (const G of S.groups.values()) { pend += G.pending || 0; if (G.lag != null) { lag += G.lag; lagKnown = true; } }
+  }
+  const u = T.upper ? (s) => s.toUpperCase() : (s) => s;
+  $('#stats').innerHTML =
+    `<span><b>${model.streams.size}</b> ${u('streams')}</span>` +
+    `<span><b>${rate < 10 ? rate.toFixed(1) : fmtN(rate)}</b> ${u('msg/s')}</span>` +
+    `<span class="${lag > 100 ? 'hot' : ''}"><b>${lagKnown ? fmtN(lag) : '–'}</b> ${u('lag')}</span>` +
+    `<span><b>${fmtN(pend)}</b> ${u('pending')}</span>`;
+}
+setInterval(renderStats, 500);
+
+// ---------------------------------------------------------------- tooltip + drawer
+const tip = $('#tip');
+function hitAt(mx, my) {
+  let best = null, bd = 49;
+  for (const e of visible) {
+    const d = (e.x - mx) ** 2 + (e.y - my) ** 2;
+    if (d < bd) { bd = d; best = e; }
+  }
+  if (best) return { kind: 'entry', e: best, S: best.S };
+  let low = null;
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    if (mx >= h.x0 && mx <= h.x1 && my >= h.y0 && my <= h.y1) { if (!h.low) return h; low = low || h; }
+  }
+  return low;
+}
+function rows(obj) { return '<dl>' + Object.entries(obj).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') + '</dl>'; }
+function tipHtml(h) {
+  const rn = redisNow();
+  if (h.kind === 'entry') {
+    const f = h.e.f ? Object.fromEntries(Object.entries(h.e.f).slice(0, 8)) : { fields: model.live?.redacted ? 'redacted' : '–' };
+    return `<h4>${esc(h.e.id)}</h4>${rows({ stream: h.S.key, age: fmtMs(rn - h.e.ms), ...f })}`;
+  }
+  if (h.kind === 'group') {
+    const G = h.G;
+    return `<h4>${esc(G.name)}</h4>${rows({ stream: h.S.key, 'last-delivered-id': G.lastDeliveredId, lag: G.lag ?? 'n/a (Redis < 7)', pending: G.pending, 'entries-read': G.entriesRead ?? 'n/a', consumers: G.consumers.size })}`;
+  }
+  if (h.kind === 'consumer') {
+    const C = h.C;
+    const oldest = h.G.pel.find((p) => p.consumer === C.name);
+    return `<h4>${esc(C.name)}</h4>${rows({ group: h.G.name, pending: C.pending, idle: fmtMs(C.idle), inactive: C.inactive == null ? 'n/a' : fmtMs(C.inactive), ...(oldest ? { 'oldest pending': `${oldest.id} (${fmtMs(oldest.idle)}, ×${oldest.deliveries})` } : {}) })}`;
+  }
+  const S = h.S;
+  return `<h4>${esc(S.key)}</h4>${rows({ length: S.length, 'first-entry': S.firstId ?? '–', 'last-generated-id': S.lastId ?? '–', 'entries-added': S.entriesAdded ?? 'n/a', groups: S.groups.size, rate: S.rate.toFixed(1) + '/s' })}<div style="margin-top:6px;opacity:.7">click for recent entries</div>`;
+}
+function pointer(ev) {
+  const r = canvas.getBoundingClientRect();
+  return [ev.clientX - r.left, ev.clientY - r.top];
+}
+canvas.addEventListener('mousemove', (ev) => {
+  const h = hitAt(...pointer(ev));
+  canvas.style.cursor = h ? 'pointer' : 'default';
+  if (!h) { tip.classList.remove('show'); return; }
+  tip.innerHTML = tipHtml(h);
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let tx = ev.clientX + 14, ty = ev.clientY + 14;
+  if (tx + tw > innerWidth - 8) tx = ev.clientX - tw - 14;
+  if (ty + th > innerHeight - 8) ty = ev.clientY - th - 14;
+  tip.style.left = Math.max(8, tx) + 'px'; tip.style.top = Math.max(8, ty) + 'px';
+  tip.classList.add('show');
+});
+canvas.addEventListener('mouseleave', () => tip.classList.remove('show'));
+canvas.addEventListener('click', (ev) => {
+  const h = hitAt(...pointer(ev));
+  if (h) openDrawer(h.S.key);
+});
+
+const drawer = { key: null, remote: null };
+function openDrawer(key) {
+  drawer.key = key; drawer.remote = null;
+  if (model.mode === 'live' && ws?.readyState === 1) ws.send(JSON.stringify({ type: 'inspect', stream: key }));
+  $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
+  tip.classList.remove('show');
+  renderDrawer();
+}
+function closeDrawer() { drawer.key = null; $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true'); }
+function renderDrawer() {
+  const S = model.streams.get(drawer.key);
+  if (!S) return closeDrawer();
+  const rn = redisNow();
+  $('#dTitle').textContent = S.key;
+  $('#dMeta').textContent = `${fmtN(S.length)} entries · ${S.groups.size} group${S.groups.size === 1 ? '' : 's'} · ${S.rate.toFixed(1)}/s`;
+  const list = drawer.remote || S.entries.slice(-40).reverse().map((e) => [e.id, e.f]);
+  $('#dList').innerHTML = list.length
+    ? list.map(([id, f]) => `<li><span class="id">${esc(id)}</span><span class="age">${fmtMs(rn - idMs(id))} ago</span>` +
+      (f ? `<div class="f">${Object.entries(f).map(([k, v]) => `<b>${esc(k)}</b>=${esc(v)}`).join('  ')}</div>` : '') + '</li>').join('')
+    : '<li>No entries in view.</li>';
+}
+$('#dClose').onclick = closeDrawer;
+setInterval(() => drawer.key && !drawer.remote && renderDrawer(), 1000);
+
+// ---------------------------------------------------------------- controls
+const THEME_ORDER = Object.keys(THEMES);
+const THEME_LABEL = { neon: 'Neon', clean: 'Clean', cockpit: 'Cockpit' };
+function setTheme(name, animate = false) {
+  themeName = name; T = THEMES[name];
+  document.body.dataset.theme = name;
+  store.set('theme', name);
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(name) + 1) % THEME_ORDER.length];
+  const btn = $('#theme');
+  $('#themeName').textContent = THEME_LABEL[name];
+  btn.setAttribute('aria-label', `Theme: ${THEME_LABEL[name]}. Switch to ${THEME_LABEL[next]}`);
+  btn.title = `Switch to ${THEME_LABEL[next]} (t)`;
+  if (animate) {
+    for (const [el, cls] of [[btn, 'spin'], [document.body, 'fade']]) {
+      el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    }
+  }
+  renderStats();
+}
+const cycleTheme = () => setTheme(THEME_ORDER[(THEME_ORDER.indexOf(themeName) + 1) % THEME_ORDER.length], true);
+function setWindow(ms) {
+  windowMs = ms; store.set('window', String(ms));
+  for (const b of document.querySelectorAll('#windows button')) b.setAttribute('aria-pressed', String(+b.dataset.v === ms));
+}
+function togglePause() {
+  paused = !paused;
+  if (paused) pausedAt = Date.now();
+  $('#pause').textContent = paused ? '▶' : '❚❚';
+  $('#pause').setAttribute('aria-label', paused ? 'Resume' : 'Pause');
+}
+$('#theme').onclick = cycleTheme;
+$('#windows').onclick = (e) => e.target.dataset.v && setWindow(+e.target.dataset.v);
+$('#pause').onclick = togglePause;
+addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input,textarea')) return;
+  if (e.key === 'Escape') closeDrawer();
+  else if (e.key === ' ') { e.preventDefault(); togglePause(); }
+  else if (e.key === 't') cycleTheme();
+});
+
+// ---------------------------------------------------------------- boot
+setTheme(themeName);
+setWindow([10000, 30000, 120000, 600000].includes(windowMs) ? windowMs : 30000);
+let sim = new Simulator(handle);
+sim.start();
+const url = wsUrl();
+if (url) connect(url);
+renderMode();
+renderStats();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
