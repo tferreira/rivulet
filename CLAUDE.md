@@ -41,6 +41,10 @@ REDIS_URL=redis://127.0.0.1:6379 npm test    # + integration against a real Redi
 
 ## Release
 
-- Push to `main` → GitHub Pages demo from `public/`.
-- Tag `v*` → multi-arch image to `ghcr.io/tferreira/rivulet`.
-- npm publish is manual (`npm publish`).
+Versions are SemVer, still 0.x. `package.json` is the source of truth; the UI shows it (from the `hello` message) and `rivulet --version` prints it.
+
+1. Move the `[Unreleased]` notes in `CHANGELOG.md` under a new version heading (and update the compare links).
+2. `npm version minor` (or `patch`) — bumps `package.json`/lockfile, commits, tags `vX.Y.Z`.
+3. `git push --follow-tags`.
+
+The tag triggers `.github/workflows/release.yml`: checks the tag matches `package.json`, runs tests, `npm publish --provenance` (npm trusted publishing via OIDC, configured on npmjs.com for this repo + `release.yml`), pushes the multi-arch image to `ghcr.io/tferreira/rivulet`, and creates a GitHub release from the CHANGELOG section. Push to `main` also redeploys the Pages demo.

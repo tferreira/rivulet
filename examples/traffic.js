@@ -13,6 +13,7 @@ const STREAMS = [
   { key: 'orders', rate: 6, groups: { billing: [['billing-1', 30], ['billing-2', 30]], fulfillment: [['ship-a', 90], ['ship-b', 90]], analytics: [['etl-0', 260]] } },
   { key: 'payments', rate: 2, groups: { ledger: [['ledger-1', 80]], 'fraud-check': [['fraud-scan', 300]] } },
   { key: 'user-events', rate: 14, groups: { 'search-indexer': [['idx-1', 40], ['idx-2', 40], ['idx-3', 40]] } },
+  { key: 'clicks', rate: 150, groups: { 'realtime-agg': [['agg-1', 1], ['agg-2', 1]] } }, // ~1 ms consumers
   { key: 'audit.log', rate: 0.5, groups: {} },
 ];
 
@@ -37,9 +38,13 @@ async function produce(s) {
 
 async function consume(s, group, name, procMs) {
   const r = new Redis(url);
+  let hangAt = Date.now() + 20000 + Math.random() * 60000;
   for (;;) {
-    // A consumer occasionally "hangs" for a while, leaving its pending entries unacked.
-    if (Math.random() < 0.01) await sleep(6000 + Math.random() * 6000);
+    // Now and then a consumer "hangs" for a while, leaving its pending entries unacked.
+    if (Date.now() > hangAt) {
+      await sleep(6000 + Math.random() * 6000);
+      hangAt = Date.now() + 30000 + Math.random() * 60000;
+    }
     const res = await r.xreadgroup('GROUP', group, name, 'COUNT', 5, 'BLOCK', 2000, 'STREAMS', s.key, '>');
     for (const [, entries] of res || []) {
       for (const [id] of entries) {

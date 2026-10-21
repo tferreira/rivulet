@@ -1,14 +1,51 @@
+# Push a tag like v0.2.0 (see CLAUDE.md "Release") to publish everything.
 name: Release
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  id-token: write # npm provenance + trusted publishing
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches package.json
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json $v"; exit 1; }
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm test
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+      # Uses npm trusted publishing (OIDC); no token needed once it is configured on npmjs.com.
+      - name: Publish (skipped if this version is already on npm, e.g. a manual first publish)
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if npm view "rivulet-redis@$v" version >/dev/null 2>&1; then echo "rivulet-redis@$v already published"; exit 0; fi
+          npm publish --provenance --access public
+
   image:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,3 +64,16 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ github.ref_name }}
             ghcr.io/${{ github.repository }}:latest
+
+  github-release:
+    needs: [npm, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release from CHANGELOG section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
