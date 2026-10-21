@@ -71,6 +71,15 @@ body[data-theme="cockpit"] .brand b { text-transform: uppercase; letter-spacing:
 .badge.live { color: var(--fg); }
 .badge.down i { background: var(--hot); }
 body[data-theme="cockpit"] .badge { border-radius: 2px; text-transform: uppercase; letter-spacing: .08em; }
+body { color-scheme: dark; }
+body[data-theme="clean"] { color-scheme: light; }
+.pick {
+  font: inherit; font-size: 12px; color: var(--fg); background: var(--btn); border: 1px solid var(--edge);
+  border-radius: 9px; padding: 4px 8px; max-width: 220px; cursor: pointer;
+}
+.pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pick option { background: var(--bg); color: var(--fg); }
+body[data-theme="cockpit"] .pick { border-radius: 2px; text-transform: uppercase; letter-spacing: .06em; }
 @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 70%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
 .stats { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 .stats b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -158,6 +167,7 @@ canvas { display: block; width: 100%; }
     <b>rivulet</b>
   </div>
   <div id="mode" class="badge"><i></i><span>Simulator</span></div>
+  <select id="target" class="pick" aria-label="Redis instance" hidden></select>
   <div class="stats" id="stats"></div>
   <div class="ctrls">
     <button id="theme" class="icon theme" title="Switch theme (t)">
@@ -391,30 +401,57 @@ function handle(m) {
 }
 
 // ---------------------------------------------------------------- live feed
-let ws = null, wsState = 'off';
+let ws = null, wsState = 'off', wsGen = 0;
 function wsUrl() {
-  if (params.get('ws')) return params.get('ws');
-  if (!CFG.ws || !/^https?:$/.test(location.protocol)) return null;
-  const u = new URL('ws', location.href);
-  u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let u;
+  if (params.get('ws')) u = new URL(params.get('ws'));
+  else if (CFG.ws && /^https?:$/.test(location.protocol)) {
+    u = new URL('ws', location.href);
+    u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  } else return null;
+  const t = decodeURIComponent(location.hash.slice(1));
+  if (t) u.searchParams.set('target', t);
   return u.href;
 }
-function connect(url, attempt = 0) {
-  ws = new WebSocket(url);
-  ws.onopen = () => { attempt = 0; wsState = 'open'; };
-  ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (err) { console.error(err); } };
-  ws.onclose = () => {
+// Each (re)connect bumps wsGen; events from an older socket are ignored, so
+// switching targets never mixes two feeds.
+function connect(attempt = 0) {
+  const gen = ++wsGen, sock = (ws = new WebSocket(wsUrl()));
+  sock.onopen = () => { attempt = 0; };
+  sock.onmessage = (e) => { if (gen === wsGen) try { handle(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  sock.onclose = () => {
+    if (gen !== wsGen) return;
     wsState = model.mode === 'live' ? 'retry' : 'off';
     renderMode();
-    setTimeout(() => connect(url, attempt + 1), Math.min(8000, 400 * 2 ** attempt));
+    setTimeout(() => gen === wsGen && connect(attempt + 1), Math.min(8000, 400 * 2 ** attempt));
   };
+}
+function switchTarget(id, fromHistory = false) {
+  if (!model.live || !id || id === model.live.target) return;
+  if (!fromHistory) history.pushState(null, '', '#' + encodeURIComponent(id));
+  const old = ws;
+  model.streams.clear(); model.sparks.length = 0; model.bursts.length = 0;
+  model.live = { ...model.live, target: id, redis: { label: model.live.targets.find((t) => t.id === id)?.label ?? '', version: null } };
+  wsState = 'connecting';
+  closeDrawer();
+  renderMode();
+  connect();
+  old?.close();
 }
 function goLive(hello) {
   sim?.stop(); sim = null;
   model.mode = 'live'; model.live = hello; model.redis = 'up'; model.synced = false;
   model.streams.clear(); model.sparks.length = 0; model.bursts.length = 0;
   wsState = 'open';
+  renderPicker();
   renderMode();
+}
+function renderPicker() {
+  const sel = $('#target'), L = model.live, many = L?.targets?.length > 1;
+  sel.hidden = !many;
+  if (!many) return;
+  sel.innerHTML = L.targets.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
+  sel.value = L.target;
 }
 function renderMode() {
   const el = $('#mode'), span = el.querySelector('span');
@@ -429,9 +466,11 @@ function renderMode() {
     (L.redis.version && parseInt(L.redis.version) < 7 ? ' · lag needs Redis 7+' : '') +
     (L.redacted ? ' · field values redacted' : '') + ' · click a stream for recent entries' +
     (L.version ? ` · rivulet ${esc(L.version)}` : '');
-  if (wsState === 'retry') { el.classList.add('down'); span.textContent = 'Reconnecting…'; }
-  else if (model.redis === 'down') { el.classList.add('down'); span.textContent = `${L.redis.label} unreachable`; }
-  else { el.classList.add('live'); span.textContent = `Live · ${L.redis.label}`; }
+  const name = L.targets?.find((t) => t.id === L.target)?.name ?? L.redis.label;
+  if (wsState === 'connecting') span.textContent = `Connecting to ${name}…`;
+  else if (wsState === 'retry') { el.classList.add('down'); span.textContent = 'Reconnecting…'; }
+  else if (model.redis === 'down') { el.classList.add('down'); span.textContent = `${name} unreachable`; }
+  else { el.classList.add('live'); span.textContent = L.targets?.length > 1 ? 'Live' : `Live · ${name}`; }
 }
 
 // ---------------------------------------------------------------- simulator
@@ -1147,8 +1186,10 @@ setTheme(themeName);
 setWindow([10000, 30000, 120000, 600000].includes(windowMs) ? windowMs : 30000);
 let sim = new Simulator(handle);
 sim.start();
-const url = wsUrl();
-if (url) connect(url);
+if (wsUrl()) connect();
+$('#target').onchange = (e) => switchTarget(e.target.value);
+// Back/forward (and edited URLs): no hash means the first target.
+addEventListener('hashchange', () => switchTarget(decodeURIComponent(location.hash.slice(1)) || model.live?.targets?.[0]?.id, true));
 renderMode();
 renderStats();
 requestAnimationFrame(frame);

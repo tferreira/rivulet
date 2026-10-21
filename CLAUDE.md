@@ -8,7 +8,8 @@ Realtime, animated, **read-only** visualizer for Redis Streams. Node bridge (ior
 - `src/guard.js` — command allowlist patched into ioredis `sendCommand`. **Every** Redis command passes through it.
 - `src/bridge.js` — `Bridge` (EventEmitter): SCAN discovery, topology poll (`XINFO STREAM/GROUPS/CONSUMERS`, `XPENDING`, `TIME`), and a tail loop on a second connection (`XREAD BLOCK`). Emits `topology`, `entries`, `status`.
 - `src/parse.js` — raw RESP replies → plain objects. Handles Redis 5/6/7 differences (missing `lag`, `entries-read`, `inactive` → `null`).
-- `src/server.js` — HTTP (serves `public/index.html`, `/healthz`) + `ws` at `/ws`. Injects `window.RIVULET={ws:true}` at the `<!--RIVULET_CONFIG-->` marker so the page knows to connect.
+- `src/config.js` — builds the target list (config file, `--target`, positional URLs), slugs ids, credential precedence. `redisLabel` strips credentials.
+- `src/server.js` — HTTP (serves `public/index.html`, `/healthz`) + `ws` at `/ws?target=<id>`. One `Target` per Redis: its `Bridge` exists only while a browser watches it (+60 s linger). Injects `window.RIVULET={ws:true}` at the `<!--RIVULET_CONFIG-->` marker so the page knows to connect.
 - `public/index.html` — the UI: Canvas 2D renderer, built-in simulator, 3 themes (neon / clean / cockpit). No build step, no dependencies. Opened standalone (or on GitHub Pages) it runs the simulator; on a `hello` message it flips to live.
 - `examples/traffic.js` — demo traffic generator (this one *does* write; scratch Redis only). `examples/rivulet.service` — systemd unit.
 

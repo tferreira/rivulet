@@ -91,8 +91,10 @@ consider `--redact`.
 ## Options
 
 ```
-rivulet [redis-url] [options]
+rivulet [redis-url ...] [options]
 
+  -c, --config <file>    JSON config with several targets
+  -t, --target <n=url>   add a named target, repeatable
   -p, --port <n>         HTTP port                      (default 7380, env PORT)
   -H, --host <addr>      bind address                   (default 127.0.0.1, env RIVULET_HOST)
   -u, --user <name>      Redis ACL username             (env REDIS_USERNAME)
@@ -107,6 +109,40 @@ rivulet [redis-url] [options]
 ```
 
 `redis-url` falls back to `$REDIS_URL`, then `redis://127.0.0.1:6379`.
+
+### Several Redis instances
+
+Give rivulet more than one target and the header gets a picker. The choice
+lives in the URL (`/#eu-dev`), so links are shareable. Each target only
+connects to Redis while someone is watching it, and disconnects a minute
+after the last viewer leaves.
+
+```sh
+rivulet redis://eu.example:6379/10 redis://na.example:6379/10
+rivulet -t "eu · stable=redis://eu.example:6379/10" -t "eu · dev=redis://eu.example:6379/42"
+rivulet --config /etc/rivulet.json
+```
+
+```jsonc
+// /etc/rivulet.json — every key except targets[].url is optional
+{
+  "host": "127.0.0.1",
+  "port": 7380,
+  "redact": true,
+  "interval": 500,
+  "match": "*",
+  "targets": [
+    { "name": "eu · stable", "url": "redis://eu.example:6379/10" },
+    { "name": "eu · dev", "url": "redis://eu.example:6379/42", "match": "dev/*" },
+    { "name": "na · stable", "url": "redis://na.example:6379/10", "username": "rivulet", "passwordEnv": "NA_REDIS_PASSWORD" }
+  ]
+}
+```
+
+Per target you can set `name`, `id`, `streams`, `match`, `maxStreams`,
+`username`, `passwordEnv` and `tls`. A global `--user` / `REDIS_PASSWORD` only
+applies to targets whose URL has no credentials of its own. Command-line flags
+win over environment variables, which win over the file.
 
 ### Passwords, ACL users and TLS
 
@@ -173,7 +209,8 @@ page at any bridge with `?ws=ws://host:7380/ws`.
 <summary>WebSocket messages (bridge → browser)</summary>
 
 ```jsonc
-{ "type": "hello", "version": "0.1.0", "redis": { "label": "10.0.0.5:6379", "version": "7.2.5" }, "redacted": false, "interval": 500 }
+{ "type": "hello", "version": "0.1.0", "target": "eu-stable", "targets": [{ "id": "eu-stable", "name": "eu · stable", "label": "10.0.0.5:6379/10" }],
+  "redis": { "label": "10.0.0.5:6379/10", "version": "8.10.2" }, "redacted": false, "interval": 500 }
 
 { "type": "topology", "time": 1792625082027,          // Redis TIME, ms
   "streams": [{ "key": "orders", "length": 5321, "lastId": "1792625082027-0", "firstId": "…", "entriesAdded": 91234,
@@ -186,7 +223,8 @@ page at any bridge with `?ws=ws://host:7380/ws`.
 { "type": "status", "redis": "down", "error": "…" }
 ```
 
-The browser may send `{ "type": "inspect", "stream": "orders" }` and receives the
+Connect to `/ws?target=<id>` to pick a target (the first one otherwise). The
+browser may send `{ "type": "inspect", "stream": "orders" }` and receives the
 last 30 entries back.
 
 </details>

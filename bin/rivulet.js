@@ -3,16 +3,19 @@ import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { Bridge } from '../src/bridge.js';
-import { redisLabel, startServer } from '../src/server.js';
+import { buildTargets, loadConfigFile } from '../src/config.js';
+import { startServer } from '../src/server.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const HELP = `rivulet ${pkg.version} — realtime Redis Streams visualizer (read-only)
 
 Usage
-  npx ${pkg.name} [redis-url] [options]
+  npx ${pkg.name} [redis-url ...] [options]
 
 Options
+  -c, --config <file>    JSON config with several targets (see README)
+  -t, --target <n=url>   add a named target, repeatable: -t "eu · stable=redis://host:6379/10"
   -p, --port <n>         HTTP port                      (default 7380, env PORT)
   -H, --host <addr>      bind address                   (default 127.0.0.1, env RIVULET_HOST)
   -u, --user <name>      Redis ACL username             (env REDIS_USERNAME)
@@ -27,7 +30,9 @@ Options
   -h, --help
   -v, --version
 
-redis-url defaults to $REDIS_URL, then redis://127.0.0.1:6379. Credentials can
+With several targets the UI shows a picker; a target only connects to Redis
+while someone is watching it. redis-url defaults to $REDIS_URL, then
+redis://127.0.0.1:6379. Credentials can
 also go in the URL (redis://user:pass@host:6379/0), but an env var keeps the
 password out of shell history and \`ps\`.
 rivulet only issues XINFO, XREAD, XRANGE, XREVRANGE, XPENDING, SCAN, TYPE,
@@ -38,6 +43,8 @@ try {
   args = parseArgs({
     allowPositionals: true,
     options: {
+      config: { type: 'string', short: 'c' },
+      target: { type: 'string', short: 't', multiple: true },
       port: { type: 'string', short: 'p' },
       host: { type: 'string', short: 'H' },
       user: { type: 'string', short: 'u' },
@@ -61,36 +68,53 @@ const { values: o, positionals } = args;
 if (o.help) (console.log(HELP), process.exit(0));
 if (o.version) (console.log(pkg.version), process.exit(0));
 
-const url = positionals[0] || process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const port = Number(o.port || process.env.PORT || 7380);
-const host = o.host || process.env.RIVULET_HOST || '127.0.0.1';
-
-const bridge = new Bridge({
-  url,
-  username: o.user || process.env.REDIS_USERNAME || undefined,
-  password: process.env[o['password-env'] || 'REDIS_PASSWORD'] || undefined,
-  tls: Boolean(o.tls),
-  streams: o.streams?.split(',').map((s) => s.trim()).filter(Boolean),
-  match: o.match || '*',
-  interval: Number(o.interval || 500),
-  maxStreams: Number(o['max-streams'] || 50),
-  redact: Boolean(o.redact),
-});
-
+const env = process.env;
+let file = null, targets;
 try {
-  await bridge.start();
+  file = o.config ? loadConfigFile(o.config) : null;
+  // precedence: CLI flag > environment > config file > default
+  const interval = Number(o.interval || file?.interval || 500);
+  targets = buildTargets({
+    file,
+    flags: o.target ?? [],
+    positionals,
+    env,
+    defaults: {
+      username: o.user || env.REDIS_USERNAME || file?.username || undefined,
+      password: env[o['password-env'] || file?.passwordEnv || 'REDIS_PASSWORD'] || undefined,
+      tls: Boolean(o.tls || file?.tls),
+      streams: o.streams?.split(',').map((s) => s.trim()).filter(Boolean) || file?.streams,
+      match: o.match || file?.match || '*',
+      interval,
+      maxStreams: Number(o['max-streams'] || file?.maxStreams || 50),
+      redact: Boolean(o.redact || file?.redact),
+    },
+  });
 } catch (err) {
-  console.error(`rivulet: cannot connect to ${redisLabel(url)}: ${err.message}`);
-  process.exit(1);
+  console.error(`rivulet: ${err.message}`);
+  process.exit(2);
 }
-bridge.on('status', (s) => s.redis === 'down' && console.error(`rivulet: redis down${s.error ? `: ${s.error}` : ''}`));
+const port = Number(o.port || env.PORT || file?.port || 7380);
+const host = o.host || env.RIVULET_HOST || file?.host || '127.0.0.1';
+const { redact, interval } = targets[0].opts;
 
-const srv = await startServer({ bridge, port, host, version: pkg.version });
+// Check every target once up front. A single unreachable target is a usage
+// error; with several, the others are still worth serving.
+const probes = await Promise.all(targets.map((t) => Bridge.probe(t.opts).then((v) => ({ v }), (err) => ({ err }))));
+console.log(`rivulet ${pkg.version} · read-only${redact ? ' · redacted' : ''}`);
+targets.forEach((t, i) => {
+  const { v, err } = probes[i];
+  const name = t.name === t.label ? t.label : `${t.name} (${t.label})`;
+  if (err) console.error(`  ✗ ${name}: ${err.message}`);
+  else console.log(`  ✓ ${name} · Redis ${v ?? '?'}`);
+});
+if (targets.length === 1 && probes[0].err) process.exit(1);
+
+const srv = await startServer({ targets, port, host, version: pkg.version, redact, interval });
 const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
 const link = `http://${shown}:${port}`;
-console.log(`rivulet ${pkg.version} · watching ${redisLabel(url)} (Redis ${bridge.redisVersion ?? '?'}) · read-only`);
 console.log(`→ ${link}`);
-if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
+if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !redact) {
   console.warn('⚠ bound to a non-loopback address: the UI has no auth and shows stream contents (consider --redact).');
 }
 if (o.open) {
@@ -99,7 +123,6 @@ if (o.open) {
 }
 
 const shutdown = async () => {
-  await bridge.stop();
   await srv.close();
   process.exit(0);
 };

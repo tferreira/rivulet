@@ -4,6 +4,9 @@
 #   sudo cp examples/rivulet.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now rivulet
 #
+# Several Redis instances: put them in /etc/rivulet.json (see README) and use
+#   ExecStart=/usr/bin/env rivulet --config /etc/rivulet.json --host 127.0.0.1
+#
 # Optional settings go in /etc/rivulet.env, e.g.
 #   REDIS_URL=redis://10.0.0.5:6379/0
 #   REDIS_USERNAME=rivulet

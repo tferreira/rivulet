@@ -6,6 +6,15 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+### Added
+- Several Redis targets in one rivulet: `--config file.json`, repeatable
+  `--target name=url`, or several URLs. The UI gets a picker, and the choice is
+  kept in the URL hash.
+- Targets connect lazily: no Redis connections or commands while nobody is
+  watching; disconnect 60 s after the last viewer leaves.
+- Startup check of every target; `/healthz` reports per-target state.
+- CI runs against Redis 8.
+
 ## [0.1.0] - 2026-10-22
 
 First release.

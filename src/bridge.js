@@ -44,6 +44,23 @@ export class Bridge extends EventEmitter {
   }
 
   async start() {
+    await this.connect();
+    this.pollLoop();
+    this.tailLoop();
+  }
+
+  // One-off connectivity check: connect, read the version, disconnect.
+  static async probe(opts) {
+    const b = new Bridge(opts);
+    try {
+      await b.connect({ tail: false });
+      return b.redisVersion;
+    } finally {
+      b.stop();
+    }
+  }
+
+  async connect({ tail = true } = {}) {
     const { username, password, tls } = this.opts;
     const base = {
       ...(username && { username }),
@@ -55,20 +72,18 @@ export class Bridge extends EventEmitter {
     };
     this.cmd = guard(new Redis(this.opts.url, base));
     // XREAD BLOCK parks its connection, so tailing gets its own.
-    this.tail = guard(new Redis(this.opts.url, { ...base, maxRetriesPerRequest: null }));
-    for (const c of [this.cmd, this.tail]) c.on('error', (err) => { this.lastError = err; }); // surfaced via status
+    if (tail) this.tail = guard(new Redis(this.opts.url, { ...base, maxRetriesPerRequest: null }));
+    for (const c of [this.cmd, this.tail].filter(Boolean)) c.on('error', (err) => { this.lastError = err; }); // surfaced via status
     this.cmd.on('ready', () => this.emit('status', { type: 'status', redis: 'up' }));
     this.cmd.on('close', () => !this.stopped && this.emit('status', { type: 'status', redis: 'down' }));
 
     try {
-      await Promise.all([this.cmd.connect(), this.tail.connect()]);
+      await Promise.all([this.cmd.connect(), this.tail?.connect()]);
     } catch (err) {
       this.stop();
       throw this.lastError || err; // e.g. WRONGPASS rather than "Connection is closed"
     }
     this.redisVersion = parseRedisVersion(await this.cmd.call('info', 'server'));
-    this.pollLoop();
-    this.tailLoop();
   }
 
   async stop() {
