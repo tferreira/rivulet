@@ -6,6 +6,8 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-22
+
 ### Fixed
 - When served by rivulet, the page no longer flashes the demo simulator before
   the live feed connects; it shows a loading screen instead (and says so if the
@@ -76,7 +78,8 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/tferreira/rivulet/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tferreira/rivulet/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tferreira/rivulet/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tferreira/rivulet/compare/v0.1.2...v0.2.0
