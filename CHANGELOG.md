@@ -6,6 +6,14 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-22
+
+### Changed
+- Stream headers show total added vs. stored when they differ ("36k added ·
+  0 stored"), instead of a bare "0 entries" on trimmed or delete-on-ack streams.
+- Docker images are also tagged without the `v` (`ghcr.io/tferreira/rivulet:0.1.2`).
+- Releases publish to npm from CI through npm trusted publishing.
+
 ## [0.1.1] - 2026-10-22
 
 ### Fixed
@@ -35,6 +43,7 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/tferreira/rivulet/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tferreira/rivulet/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tferreira/rivulet/releases/tag/v0.1.0

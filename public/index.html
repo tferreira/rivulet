@@ -770,9 +770,11 @@ function drawStream(S, rn, pnow, dt) {
   const tw = ctx.measureText(title).width;
   ctx.font = font(T.dense ? 11 : 12, 400, T.dense);
   ctx.fillStyle = T.muted;
+  // Trimmed or delete-on-ack streams hold far fewer entries than they ever received.
+  const trimmed = S.entriesAdded != null && S.entriesAdded > S.length;
   const meta = T.dense
-    ? `LEN ${fmtN(S.length)}  RATE ${S.rate.toFixed(1)}/S  GRP ${S.groups.size}  LAST ${S.lastId ?? '–'}`
-    : `${fmtN(S.length)} entries · ${S.rate < 10 ? S.rate.toFixed(1) : fmtN(S.rate)}/s${S.groups.size ? '' : ' · no consumer groups'}${S.sampled || S.skipped ? ' · sampled' : ''}`;
+    ? `LEN ${fmtN(S.length)}${trimmed ? `  ADDED ${fmtN(S.entriesAdded)}` : ''}  RATE ${S.rate.toFixed(1)}/S  GRP ${S.groups.size}  LAST ${S.lastId ?? '–'}`
+    : `${trimmed ? `${fmtN(S.entriesAdded)} added · ${fmtN(S.length)} stored` : `${fmtN(S.length)} entries`} · ${S.rate < 10 ? S.rate.toFixed(1) : fmtN(S.rate)}/s${S.groups.size ? '' : ' · no consumer groups'}${S.sampled || S.skipped ? ' · sampled' : ''}`;
   ctx.fillText(clip(meta, (L.wide ? xR : W - x - 14) - (x + 28 + tw)), x + 26 + tw, y + 22);
   hits.push({ kind: 'stream', S, x0: x, y0: y, x1: L.wide ? xR : x + w, y1: y + 30 });
 
