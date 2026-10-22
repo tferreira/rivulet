@@ -134,6 +134,30 @@ test('redacted targets never send field values', { skip }, async (t) => {
   c.ws.close();
 });
 
+test('showFields sends only the listed fields, live and in inspect', { skip }, async (t) => {
+  const w = new Redis(url);
+  t.after(async () => { await w.del(key); w.disconnect(); });
+  await w.del(key);
+  await w.xadd(key, '*', 'type', 'order.created', 'payload', 'card 4242');
+  const targets = buildTargets({ positionals: [url], defaults: { streams: [key], interval: 100, redact: true, showFields: ['type'] } });
+  const srv = await startServer({ targets, port: 0, host: '127.0.0.1', version: 'test', redact: true });
+  t.after(() => srv.close());
+  const c = client(srv.server.address().port);
+  const hello = await c.until((m) => m.type === 'hello');
+  assert.equal(hello.redacted, true);
+  assert.deepEqual(hello.fields, ['type']);
+  assert.equal(hello.colorBy, 'type');
+  await c.until((m) => m.type === 'topology');
+  const id = await w.xadd(key, '*', 'type', 'order.paid', 'payload', 'card 4343');
+  const e = await c.until((m) => m.type === 'entries' && m.entries.some(([eid]) => eid === id));
+  assert.deepEqual(e.entries.find(([eid]) => eid === id), [id, { type: 'order.paid' }]);
+  c.ws.send(JSON.stringify({ type: 'inspect', stream: key }));
+  const inspect = await c.until((m) => m.type === 'inspect');
+  assert.deepEqual(inspect.entries.map(([, f]) => f), [{ type: 'order.paid' }, { type: 'order.created' }]);
+  assert.ok(!JSON.stringify(c.msgs).includes('card 4'));
+  c.ws.close();
+});
+
 test('discovery finds streams via SCAN TYPE', { skip }, async (t) => {
   const writer = new Redis(url);
   t.after(async () => { await writer.del(key); writer.disconnect(); });

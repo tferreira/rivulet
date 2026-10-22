@@ -23,6 +23,12 @@ function urlHas(url, part) {
   }
 }
 
+function fieldList(v, what) {
+  if (v == null) return null;
+  if (!Array.isArray(v) || !v.every((f) => typeof f === 'string' && f)) throw new Error(`${what} must be a list of field names`);
+  return v; // [] is kept: an empty allowlist shows nothing
+}
+
 export function loadConfigFile(path) {
   let raw;
   try {
@@ -60,6 +66,10 @@ export function buildTargets({ file = null, flags = [], positionals = [], env = 
     seen.add(id);
     const password = t.passwordEnv ? env[t.passwordEnv] : urlHas(t.url, 'password') ? undefined : defaults.password;
     const username = t.username ?? (urlHas(t.url, 'username') ? undefined : defaults.username);
+    const showFields = fieldList(t.showFields ?? defaults.showFields, `target ${i + 1} showFields`);
+    // Color by an explicit field, else by the first field you chose to show; never guessed.
+    const colorBy = t.colorBy ?? defaults.colorBy ?? showFields?.[0] ?? null;
+    if (colorBy != null && (typeof colorBy !== 'string' || !colorBy)) throw new Error(`target ${i + 1} colorBy must be a field name`);
     return {
       id,
       name,
@@ -73,6 +83,8 @@ export function buildTargets({ file = null, flags = [], positionals = [], env = 
         streams: t.streams ?? defaults.streams,
         match: t.match ?? defaults.match,
         maxStreams: t.maxStreams ?? defaults.maxStreams,
+        showFields,
+        colorBy,
       },
     };
   });

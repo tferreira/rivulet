@@ -19,6 +19,8 @@ Realtime, animated, **read-only** visualizer for Redis Streams. Node bridge (ior
 - Keep `public/index.html` a single dependency-free file that works from `file://`. Simulator and live feed must go through the same `handle()` → `applyTopology` / `applyEntries` path; the sim emits exactly the bridge's message shapes.
 - Plain Node is the primary way to run it (users run it on servers without Docker). Docker is optional. Node ≥ 20, ESM only.
 - Default bind is `127.0.0.1`; the UI has no auth.
+- Field exposure is opt-in only: `redact` drops all values, `showFields` is an allowlist (empty = nothing). Never auto-detect or guess which fields are safe or which one is the "type"; `colorBy` is explicit or the first `showFields` entry.
+- Keep the project agnostic: no names, topics, hosts or layouts from any particular deployment in tests, examples, docs or commit messages.
 
 ## Wire protocol
 

@@ -25,6 +25,7 @@ const DEFAULTS = {
   count: 500, // max entries per stream per XREAD
   pelSample: 20,
   redact: false,
+  showFields: null, // allowlist of field names sent to browsers; all others dropped
 };
 
 // Observes Redis Streams and emits JSON-ready messages:
@@ -98,7 +99,7 @@ export class Bridge extends EventEmitter {
 
   async inspect(key, count = 30) {
     const raw = await this.cmd.call('xrevrange', key, '+', '-', 'COUNT', count);
-    return parseEntries(raw, { redact: this.opts.redact });
+    return parseEntries(raw, this.opts);
   }
 
   async discover() {
@@ -198,7 +199,7 @@ export class Bridge extends EventEmitter {
       }
       for (const [key, raw] of res || []) {
         if (!this.cursors.has(key) || !raw.length) continue;
-        const entries = parseEntries(raw, { redact: this.opts.redact });
+        const entries = parseEntries(raw, this.opts);
         const lastId = entries[entries.length - 1][0];
         this.cursors.set(key, lastId);
         const msg = { type: 'entries', stream: key, entries };

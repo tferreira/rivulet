@@ -15,7 +15,7 @@ Usage
 
 Options
   -c, --config <file>    JSON config with several targets (see README)
-  -t, --target <n=url>   add a named target, repeatable: -t "eu · stable=redis://host:6379/10"
+  -t, --target <n=url>   add a named target, repeatable: -t "prod=redis://host:6379/0"
   -p, --port <n>         HTTP port                      (default 7380, env PORT)
   -H, --host <addr>      bind address                   (default 127.0.0.1, env RIVULET_HOST)
   -u, --user <name>      Redis ACL username             (env REDIS_USERNAME)
@@ -26,6 +26,8 @@ Options
   -i, --interval <ms>    topology poll interval         (default 500)
       --max-streams <n>  cap on discovered streams      (default 50)
       --redact           never send field values to the browser
+      --show-fields <a,b> send only these fields (values included), drop the rest
+      --color-by <field> color entries by this field's value (default: first --show-fields)
       --open             open the UI in a browser
   -h, --help
   -v, --version
@@ -55,6 +57,8 @@ try {
       interval: { type: 'string', short: 'i' },
       'max-streams': { type: 'string' },
       redact: { type: 'boolean' },
+      'show-fields': { type: 'string' },
+      'color-by': { type: 'string' },
       open: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
@@ -88,6 +92,8 @@ try {
       interval,
       maxStreams: Number(o['max-streams'] || file?.maxStreams || 50),
       redact: Boolean(o.redact || file?.redact),
+      showFields: o['show-fields']?.split(',').map((s) => s.trim()).filter(Boolean) || file?.showFields,
+      colorBy: o['color-by'] || file?.colorBy,
     },
   });
 } catch (err) {
@@ -97,6 +103,7 @@ try {
 const port = Number(o.port || env.PORT || file?.port || 7380);
 const host = o.host || env.RIVULET_HOST || file?.host || '127.0.0.1';
 const { redact, interval } = targets[0].opts;
+const shownAnywhere = targets.some((t) => t.opts.showFields);
 
 // Check every target once up front. A single unreachable target is a usage
 // error; with several, the others are still worth serving.
@@ -105,8 +112,12 @@ console.log(`rivulet ${pkg.version} · read-only${redact ? ' · redacted' : ''}`
 targets.forEach((t, i) => {
   const { v, err } = probes[i];
   const name = t.name === t.label ? t.label : `${t.name} (${t.label})`;
+  const { showFields, colorBy, redact: r } = t.opts;
+  let shown = showFields ? ` · fields shown: ${showFields.join(', ') || 'none'}` : '';
+  if (colorBy) shown += ` · colored by ${colorBy}`;
+  if (colorBy && (showFields ? !showFields.includes(colorBy) : r)) shown += ` (⚠ ${colorBy} is redacted, nothing to color)`;
   if (err) console.error(`  ✗ ${name}: ${err.message}`);
-  else console.log(`  ✓ ${name} · Redis ${v ?? '?'}`);
+  else console.log(`  ✓ ${name} · Redis ${v ?? '?'}${shown}`);
 });
 if (targets.length === 1 && probes[0].err) process.exit(1);
 
@@ -114,7 +125,7 @@ const srv = await startServer({ targets, port, host, version: pkg.version, redac
 const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
 const link = `http://${shown}:${port}`;
 console.log(`→ ${link}`);
-if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !redact) {
+if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !redact && !shownAnywhere) {
   console.warn('⚠ bound to a non-loopback address: the UI has no auth and shows stream contents (consider --redact).');
 }
 if (o.open) {

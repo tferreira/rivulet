@@ -10,11 +10,11 @@ const url = process.argv[2] || process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 const prefix = 'demo:';
 
 const STREAMS = [
-  { key: 'orders', rate: 6, groups: { billing: [['billing-1', 30], ['billing-2', 30]], fulfillment: [['ship-a', 90], ['ship-b', 90]], analytics: [['etl-0', 260]] } },
-  { key: 'payments', rate: 2, groups: { ledger: [['ledger-1', 80]], 'fraud-check': [['fraud-scan', 300]] } },
-  { key: 'user-events', rate: 14, groups: { 'search-indexer': [['idx-1', 40], ['idx-2', 40], ['idx-3', 40]] } },
-  { key: 'clicks', rate: 150, groups: { 'realtime-agg': [['agg-1', 1], ['agg-2', 1]] } }, // ~1 ms consumers
-  { key: 'audit.log', rate: 0.5, groups: {} },
+  { key: 'orders', rate: 6, events: ['order.created', 'order.paid', 'order.shipped'], groups: { billing: [['billing-1', 30], ['billing-2', 30]], fulfillment: [['ship-a', 90], ['ship-b', 90]], analytics: [['etl-0', 260]] } },
+  { key: 'payments', rate: 2, events: ['payment.captured', 'payment.declined'], groups: { ledger: [['ledger-1', 80]], 'fraud-check': [['fraud-scan', 300]] } },
+  { key: 'user-events', rate: 14, events: ['page_view', 'click', 'search'], groups: { 'search-indexer': [['idx-1', 40], ['idx-2', 40], ['idx-3', 40]] } },
+  { key: 'clicks', rate: 150, events: ['click', 'scroll'], groups: { 'realtime-agg': [['agg-1', 1], ['agg-2', 1]] } }, // ~1 ms consumers
+  { key: 'audit.log', rate: 0.5, events: ['login', 'deploy'], groups: {} },
 ];
 
 const producer = new Redis(url);
@@ -32,7 +32,8 @@ for (const s of STREAMS) {
 async function produce(s) {
   for (;;) {
     await sleep(-Math.log(Math.random()) * (1000 / s.rate));
-    await producer.xadd(s.key, 'MAXLEN', '~', 10000, '*', 'n', String(Math.random()).slice(2, 8), 'at', new Date().toISOString());
+    const event = s.events[Math.floor(Math.random() * s.events.length)];
+    await producer.xadd(s.key, 'MAXLEN', '~', 10000, '*', 'event', event, 'n', String(Math.random()).slice(2, 8), 'at', new Date().toISOString());
   }
 }
 

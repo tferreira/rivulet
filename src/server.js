@@ -96,7 +96,9 @@ export async function startServer({ targets, port, host, version, redact = false
     target: t.id,
     targets: list,
     redis: { label: t.label, version: t.version },
-    redacted: redact,
+    redacted: Boolean(t.opts.redact ?? redact) || Boolean(t.opts.showFields),
+    fields: t.opts.showFields ?? null,
+    colorBy: t.opts.colorBy ?? null,
     interval,
   });
   const pool = new Map(targets.map((t) => [t.id, new Target(t, { linger, hello })]));

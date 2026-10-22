@@ -64,16 +64,22 @@ export function parsePendingRange(raw) {
   }));
 }
 
-export function parseEntries(raw, { redact = false, maxFields = 12, maxValue = 200 } = {}) {
+// `showFields` is an allowlist: when set, only those fields leave the bridge and
+// every other field is dropped, with or without `redact` (an empty list drops all).
+// `redact` alone drops all.
+export function parseEntries(raw, { redact = false, showFields = null, maxFields = 12, maxValue = 200 } = {}) {
+  const only = showFields ? new Set(showFields) : null;
   return (raw || []).map(([id, flat]) => {
-    if (redact || !flat) return [id];
+    if (!flat || (redact && !only)) return [id];
     const fields = {};
-    const n = Math.min(flat.length, maxFields * 2);
-    for (let i = 0; i + 1 < n; i += 2) {
+    let n = 0;
+    for (let i = 0; i + 1 < flat.length && n < maxFields; i += 2) {
+      if (only && !only.has(String(flat[i]))) continue;
       const v = String(flat[i + 1]);
       fields[flat[i]] = v.length > maxValue ? v.slice(0, maxValue) + '…' : v;
+      n++;
     }
-    return [id, fields];
+    return n ? [id, fields] : [id];
   });
 }
 

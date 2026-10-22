@@ -6,6 +6,18 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-22
+
+### Added
+- `showFields` (`--show-fields a,b`): an allowlist of fields sent to browsers,
+  values included; every other field is dropped on the server. Listing fields
+  always redacts the rest, and an empty list shows nothing. Global or per target.
+- Coloring by a field's value (`colorBy` / `--color-by`, defaulting to the first
+  shown field; never guessed), with chips under each stream showing the busiest
+  values and their rate. Click a chip to highlight that value.
+- The simulator and `examples/traffic.js` emit an `event` field, so the demo
+  shows coloring.
+
 ## [0.1.2] - 2026-10-22
 
 ### Changed
@@ -43,7 +55,8 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tferreira/rivulet/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/tferreira/rivulet/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tferreira/rivulet/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tferreira/rivulet/releases/tag/v0.1.0

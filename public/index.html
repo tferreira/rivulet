@@ -247,6 +247,7 @@ const THEMES = {
     text: '#efe9ff', muted: '#9a8fc7', card: 'rgba(22,11,48,.55)', cardEdge: 'rgba(167,139,250,.20)',
     lane: 'rgba(124,77,255,.13)', laneEdge: 'rgba(167,139,250,.42)', node: '#160b33',
     palette: ['#22d3ee', '#f472b6', '#a3e635', '#facc15', '#fb923c', '#c084fc'],
+    labels: ['#22d3ee', '#f472b6', '#a3e635', '#facc15', '#c084fc', '#fb923c', '#60a5fa', '#34d399'],
     ok: '#2bf5a0', warn: '#ffb020', hot: '#ff3d7f', play: '#ffffff',
     glow: true, radius: 16, gap: 14, cons: 28, laneH: 22, box: [150, 40],
   },
@@ -255,6 +256,7 @@ const THEMES = {
     text: '#1b1e2b', muted: '#6b7185', card: '#ffffff', cardEdge: '#e2e6ef',
     lane: '#f0f3f9', laneEdge: '#dfe4ee', node: '#ffffff',
     palette: ['#3b6cf6', '#14a37f', '#e8833a', '#8b5cf6', '#e5484d', '#0ea5c6'],
+    labels: ['#3b6cf6', '#14a37f', '#e8833a', '#8b5cf6', '#0ea5c6', '#d946ef', '#65a30d', '#b45309'],
     ok: '#14a37f', warn: '#d98a1c', hot: '#e5484d', play: '#1b1e2b',
     shadow: true, radius: 14, gap: 14, cons: 28, laneH: 22, box: [150, 40],
   },
@@ -263,6 +265,7 @@ const THEMES = {
     text: '#b8ffcc', muted: '#4f9d6a', card: 'rgba(3,18,10,.85)', cardEdge: 'rgba(80,255,140,.26)',
     lane: 'rgba(80,255,140,.05)', laneEdge: 'rgba(80,255,140,.32)', node: '#03140b',
     palette: ['#3cff7a', '#2ee6ff', '#ffb000', '#ff6ad5', '#f2ff3c', '#ff7a3c'],
+    labels: ['#3cff7a', '#2ee6ff', '#ffb000', '#ff6ad5', '#f2ff3c', '#9d8cff', '#ff7a3c', '#7affd4'],
     ok: '#3cff7a', warn: '#ffb000', hot: '#ff4a2e', play: '#ffb000',
     dense: true, ticks: true, upper: true, radius: 2, gap: 8, cons: 21, laneH: 16, box: [150, 32],
   },
@@ -289,11 +292,31 @@ function sprite(color) {
 // ---------------------------------------------------------------- model
 // Live and simulated feeds both produce the same two messages (topology,
 // entries); everything visual is derived from them here.
-const MAX_ENTRIES = 4000, CLUSTER_MAX = 24, RECENT_MAX = 50;
+const MAX_ENTRIES = 4000, CLUSTER_MAX = 24, RECENT_MAX = 50, LABEL_MAX = 8, CHIPS_MAX = 5;
 const model = { mode: 'sim', live: null, offset: 0, synced: false, streams: new Map(), sparks: [], bursts: [], redis: 'up' };
 let streamSeq = 0;
 
 const redisNow = () => Date.now() + model.offset;
+
+// Coloring by a field's value (`colorBy`, configured on the bridge; never guessed).
+// Per stream, a value keeps the color it got first, so colors never shift while you watch.
+let colorBy = null;
+function labelOf(e) { return colorBy && e.f ? e.f[colorBy] ?? null : null; }
+function labelColor(S, v) {
+  if (v == null) return null;
+  const idx = (S.labelIdx ??= new Map());
+  let i = idx.get(v);
+  if (i === undefined) idx.set(v, (i = idx.size < LABEL_MAX ? idx.size : -1));
+  return i < 0 ? T.muted : T.labels[i];
+}
+// Common prefix up to a separator, so `order.created`/`order.paid` read `created`/`paid`.
+function prefixLen(values) {
+  if (values.length < 2) return 0;
+  let p = values[0];
+  for (const v of values) while (!v.startsWith(p)) p = p.slice(0, -1);
+  const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('.'), p.lastIndexOf(':'));
+  return cut + 1;
+}
 
 function ensureStream(key) {
   let S = model.streams.get(key);
@@ -443,6 +466,7 @@ function switchTarget(id, fromHistory = false) {
 function goLive(hello) {
   sim?.stop(); sim = null;
   model.mode = 'live'; model.live = hello; model.redis = 'up'; model.synced = false;
+  colorBy = hello.colorBy ?? null;
   model.streams.clear(); model.sparks.length = 0; model.bursts.length = 0;
   wsState = 'open';
   renderPicker();
@@ -466,7 +490,8 @@ function renderMode() {
   $('#hint').innerHTML = `Read-only view of <code>${esc(L.redis.label)}</code>` +
     (L.redis.version ? ` · Redis ${esc(L.redis.version)}` : '') +
     (L.redis.version && parseInt(L.redis.version) < 7 ? ' · lag needs Redis 7+' : '') +
-    (L.redacted ? ' · field values redacted' : '') + ' · click a stream for recent entries' +
+    (L.fields?.length ? ` · only ${L.fields.map(esc).join(', ')} shown, other fields redacted` : L.redacted ? ' · field values redacted' : '') +
+    ' · click a stream for recent entries' +
     (L.version ? ` · rivulet ${esc(L.version)}` : '');
   const name = L.targets?.find((t) => t.id === L.target)?.name ?? L.redis.label;
   if (wsState === 'connecting') span.textContent = `Connecting to ${name}…`;
@@ -482,24 +507,24 @@ const rid = () => Math.random().toString(36).slice(2, 9);
 const SKUS = ['kbd-75', 'mouse-pro', 'usb-c-hub', 'monitor-27', 'desk-mat', 'webcam-4k'];
 const SIM = [
   { key: 'orders', rate: 7, amp: 0.5, period: 23000,
-    fields: () => ({ order_id: 'ord_' + rid(), sku: pick(SKUS), qty: 1 + rnd(4), total: (5 + Math.random() * 240).toFixed(2), currency: 'EUR' }),
+    fields: () => ({ event: pick(['order.created', 'order.created', 'order.paid', 'order.paid', 'order.shipped', 'order.cancelled']), order_id: 'ord_' + rid(), sku: pick(SKUS), qty: 1 + rnd(4), total: (5 + Math.random() * 240).toFixed(2) }),
     groups: [['billing', [['billing-1', 120, 40], ['billing-2', 120, 40]]],
       ['fulfillment', [['ship-a', 200, 90], ['ship-b', 200, 90], ['ship-c', 200, 90]]],
       ['analytics', [['etl-0', 500, 230]]]] },
   { key: 'clickstream', rate: 45, amp: 0.35, period: 13000,
-    fields: () => ({ user: 'u' + rnd(9000), el: pick(['#buy', '#nav', '.card', '#search']), x: rnd(1440), y: rnd(900) }),
+    fields: () => ({ event: pick(['click', 'click', 'scroll', 'hover']), user: 'u' + rnd(9000), el: pick(['#buy', '#nav', '.card', '#search']) }),
     groups: [['realtime-agg', [['agg-1', 50, 3], ['agg-2', 50, 3]]]] },
   { key: 'payments', rate: 2.5, amp: 0.4, period: 17000,
-    fields: () => ({ payment_id: 'pay_' + rid(), method: pick(['card', 'sepa', 'paypal']), amount: (Math.random() * 300).toFixed(2), status: pick(['captured', 'captured', 'authorized', 'declined']) }),
+    fields: () => ({ event: pick(['payment.captured', 'payment.captured', 'payment.authorized', 'payment.declined']), payment_id: 'pay_' + rid(), method: pick(['card', 'sepa', 'paypal']), amount: (Math.random() * 300).toFixed(2) }),
     groups: [['ledger', [['ledger-1', 150, 110], ['ledger-2', 150, 110]]], ['fraud-check', [['fraud-scan', 300, 260]]]] },
   { key: 'user-events', rate: 15, amp: 0.6, period: 31000, bursty: true,
     fields: () => ({ user: 'u' + rnd(9000), event: pick(['page_view', 'page_view', 'click', 'search', 'add_to_cart']), path: pick(['/', '/shop', '/cart', '/p/' + rnd(400)]) }),
     groups: [['search-indexer', [['idx-1', 100, 45], ['idx-2', 100, 45], ['idx-3', 100, 45]]]] },
   { key: 'notifications', rate: 1.3, amp: 0.3, period: 29000,
-    fields: () => ({ to: 'u' + rnd(9000), channel: pick(['email', 'push', 'push']), template: pick(['receipt', 'shipped', 'promo']) }),
+    fields: () => ({ event: pick(['notify.email', 'notify.push', 'notify.push']), to: 'u' + rnd(9000), template: pick(['receipt', 'shipped', 'promo']) }),
     groups: [['mailer', [['smtp-1', 400, 320]]], ['push', [['apns', 250, 80], ['fcm', 250, 80]]]] },
   { key: 'audit.log', rate: 0.7, amp: 0.2, period: 40000,
-    fields: () => ({ actor: pick(['admin', 'deploy-bot', 'svc-api']), action: pick(['login', 'config.update', 'key.rotate', 'deploy']) }),
+    fields: () => ({ event: pick(['login', 'config.update', 'key.rotate', 'deploy']), actor: pick(['admin', 'deploy-bot', 'svc-api']) }),
     groups: [] },
 ];
 
@@ -775,8 +800,10 @@ function drawStream(S, rn, pnow, dt) {
   const meta = T.dense
     ? `LEN ${fmtN(S.length)}${trimmed ? `  ADDED ${fmtN(S.entriesAdded)}` : ''}  RATE ${S.rate.toFixed(1)}/S  GRP ${S.groups.size}  LAST ${S.lastId ?? '–'}`
     : `${trimmed ? `${fmtN(S.entriesAdded)} added · ${fmtN(S.length)} stored` : `${fmtN(S.length)} entries`} · ${S.rate < 10 ? S.rate.toFixed(1) : fmtN(S.rate)}/s${S.groups.size ? '' : ' · no consumer groups'}${S.sampled || S.skipped ? ' · sampled' : ''}`;
-  ctx.fillText(clip(meta, (L.wide ? xR : W - x - 14) - (x + 28 + tw)), x + 26 + tw, y + 22);
+  const metaTxt = clip(meta, (L.wide ? xR : W - x - 14) - (x + 28 + tw));
+  ctx.fillText(metaTxt, x + 26 + tw, y + 22);
   hits.push({ kind: 'stream', S, x0: x, y0: y, x1: L.wide ? xR : x + w, y1: y + 30 });
+  if (S.labels?.length) drawChips(S, x + 26 + tw + ctx.measureText(metaTxt).width + 14, y + 22, L.wide ? xR : W - x - 14);
 
   // producer
   S.pulse = Math.max(0, S.pulse - dt * 2.5);
@@ -844,7 +871,8 @@ function drawStream(S, rn, pnow, dt) {
   const trail = T.glow ? Math.min(14, (span / windowMs) * 90) : 0;
   const dens = (S.dens || 0) / span, glowK = Math.max(0.12, Math.min(1, 0.35 / Math.max(dens, 0.01)));
   const rK = dens > 1 ? 0.7 : 1;
-  let shown = 0;
+  let shown = 0, oldest = 0;
+  const counts = colorBy ? new Map() : null;
   for (let i = E.length - 1; i >= 0; i--) {
     const e = E[i], age = Math.max(0, rn - e.ms);
     if (age > windowMs) break;
@@ -853,10 +881,17 @@ function drawStream(S, rn, pnow, dt) {
     if (k < 1 && !reduceMotion) { const q = 1 - (1 - Math.max(0, k)) ** 3; ex = xP + (ex - xP) * q; ey = laneY + (ey - laneY) * q; }
     const stuck = pel.has(e.id);
     if (stuck && !reduceMotion) { ex += Math.sin(pnow * 0.06 + e.s * 90) * 1.6; ey += Math.cos(pnow * 0.07 + e.s * 50) * 1.2; }
+    const lab = labelOf(e);
+    if (counts && lab != null) counts.set(lab, (counts.get(lab) || 0) + 1);
+    oldest = age;
     const undelivered = minLD && age > 1500 && cmpId(e.id, minLD) > 0;
-    const c = stuck ? T.hot : undelivered ? T.warn : col;
+    // with coloring on, the type keeps its color; the backlog band still shows what's undelivered
+    const c = stuck ? T.hot : lab != null ? labelColor(S, lab) : undelivered ? T.warn : col;
+    const dim = S.focus != null && lab !== S.focus;
+    if (dim) ctx.globalAlpha = 0.14;
     e.x = ex; e.y = ey;
-    visible.push(e); e.S = S; shown++;
+    if (!dim) { visible.push(e); e.S = S; }
+    shown++;
     if (T.dense) {
       ctx.fillStyle = c;
       ctx.fillRect(ex - 0.75, ey - 3, 1.5, 6);
@@ -866,9 +901,18 @@ function drawStream(S, rn, pnow, dt) {
       dot(ex, ey, (k < 1 ? 2.4 + (1 - k) * 2 : 2.4) * rK, c, stuck ? 1.4 : glowK);
       if (stuck) { ctx.strokeStyle = T.hot; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(ex, ey, 5, 0, 6.2832); ctx.stroke(); }
     }
+    if (dim) ctx.globalAlpha = 1;
   }
 
   S.dens = shown;
+  if (counts) {
+    // rate per value = its share of what's in view × the stream's rate over the span in view
+    // (sampled lanes hold only part of the entries, so use the measured arrival rate there)
+    const secs = Math.max(1, oldest / 1000);
+    const total = S.sampled ? S.rate : shown / secs;
+    S.labels = [...counts].sort((a, b) => b[1] - a[1]).map(([v, n]) => [v, shown ? (n / shown) * total : 0, n]);
+    if (S.focus != null && !counts.has(S.focus)) S.labels.push([S.focus, 0, 0]);
+  } else S.labels = null;
 
   // cursors on top of entries; labels laid out left to right so neighbours don't overlap
   let labelEnd = -Infinity;
@@ -893,6 +937,30 @@ function drawStream(S, rn, pnow, dt) {
   ctx.textBaseline = 'alphabetic';
 
   for (const G of groups) drawGroup(S, G, L, rn, pnow, dt);
+}
+
+function drawChips(S, x, y, maxX) {
+  const top = S.labels.slice(0, CHIPS_MAX), rest = S.labels.length - top.length;
+  const cut = prefixLen(S.labels.map(([v]) => String(v)));
+  ctx.font = font(T.dense ? 10.5 : 11, 500, T.dense);
+  for (const [v, rate] of top) {
+    const txt = `${up(String(v).slice(cut) || String(v))} ${rate < 10 ? rate.toFixed(1) : fmtN(rate)}/s`;
+    const w = ctx.measureText(txt).width + 22;
+    if (x + w > maxX) return;
+    const on = S.focus === v, off = S.focus != null && !on;
+    rrect(x, y - 12, w, 17, T.dense ? 1 : 8.5);
+    const lc = labelColor(S, v);
+    ctx.fillStyle = on ? lc + '33' : T.lane; ctx.fill();
+    ctx.strokeStyle = on ? lc : T.cardEdge; ctx.lineWidth = 1; ctx.stroke();
+    ctx.globalAlpha = off ? 0.45 : 1;
+    ctx.fillStyle = lc;
+    ctx.beginPath(); ctx.arc(x + 9, y - 3.5, 3, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = T.text; ctx.fillText(txt, x + 16, y);
+    ctx.globalAlpha = 1;
+    hits.push({ kind: 'chip', S, value: v, x0: x, y0: y - 12, x1: x + w, y1: y + 5 });
+    x += w + 6;
+  }
+  if (rest > 0 && x + 30 < maxX) { ctx.fillStyle = T.muted; ctx.fillText(`+${rest}`, x + 2, y); }
 }
 
 function drawGroup(S, G, L, rn, pnow, dt) {
@@ -1093,11 +1161,16 @@ function tipHtml(h) {
   const rn = redisNow();
   if (h.kind === 'entry') {
     const f = h.e.f ? Object.fromEntries(Object.entries(h.e.f).slice(0, 8)) : { fields: model.live?.redacted ? 'redacted' : '–' };
+    if (h.e.f && model.live?.redacted) f['other fields'] = 'redacted';
     return `<h4>${esc(h.e.id)}</h4>${rows({ stream: h.S.key, age: fmtMs(rn - h.e.ms), ...f })}`;
   }
   if (h.kind === 'group') {
     const G = h.G;
     return `<h4>${esc(G.name)}</h4>${rows({ stream: h.S.key, 'last-delivered-id': G.lastDeliveredId, lag: G.lag ?? 'n/a (Redis < 7)', pending: G.pending, 'entries-read': G.entriesRead ?? 'n/a', delivered: G.rate == null ? 'n/a (Redis < 7)' : G.rate.toFixed(1) + '/s', consumers: G.consumers.size })}`;
+  }
+  if (h.kind === 'chip') {
+    const [, rate, n] = h.S.labels.find(([v]) => v === h.value) || [h.value, 0, 0];
+    return `<h4>${esc(h.value)}</h4>${rows({ field: colorBy, 'in view': n, rate: rate.toFixed(2) + '/s' })}<div style="margin-top:6px;opacity:.7">click to ${h.S.focus === h.value ? 'show all' : 'highlight'}</div>`;
   }
   if (h.kind === 'consumer') {
     const C = h.C;
@@ -1126,7 +1199,8 @@ canvas.addEventListener('mousemove', (ev) => {
 canvas.addEventListener('mouseleave', () => tip.classList.remove('show'));
 canvas.addEventListener('click', (ev) => {
   const h = hitAt(...pointer(ev));
-  if (h) openDrawer(h.S.key);
+  if (h?.kind === 'chip') h.S.focus = h.S.focus === h.value ? null : h.value;
+  else if (h) openDrawer(h.S.key);
 });
 
 const drawer = { key: null, remote: null };
@@ -1193,6 +1267,7 @@ addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------- boot
 setTheme(themeName);
 setWindow([10000, 30000, 120000, 600000].includes(windowMs) ? windowMs : 30000);
+colorBy = 'event'; // the demo shows coloring; live mode takes it from the bridge
 let sim = new Simulator(handle);
 sim.start();
 if (wsUrl()) connect();

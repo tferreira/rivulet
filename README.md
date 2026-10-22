@@ -105,6 +105,8 @@ rivulet [redis-url ...] [options]
   -i, --interval <ms>    topology poll interval         (default 500)
       --max-streams <n>  cap on discovered streams      (default 50)
       --redact           never send field values to the browser
+      --show-fields <a,b> send only these fields (values included), drop the rest
+      --color-by <field> color entries by this field (default: first --show-fields)
       --open             open the UI in a browser
 ```
 
@@ -113,13 +115,13 @@ rivulet [redis-url ...] [options]
 ### Several Redis instances
 
 Give rivulet more than one target and the header gets a picker. The choice
-lives in the URL (`/#eu-dev`), so links are shareable. Each target only
+lives in the URL (`/#staging`), so links are shareable. Each target only
 connects to Redis while someone is watching it, and disconnects a minute
 after the last viewer leaves.
 
 ```sh
-rivulet redis://eu.example:6379/10 redis://na.example:6379/10
-rivulet -t "eu · stable=redis://eu.example:6379/10" -t "eu · dev=redis://eu.example:6379/42"
+rivulet redis://prod.example:6379 redis://staging.example:6379
+rivulet -t "prod=redis://prod.example:6379/0" -t "staging=redis://staging.example:6379/1"
 rivulet --config /etc/rivulet.json
 ```
 
@@ -132,17 +134,35 @@ rivulet --config /etc/rivulet.json
   "interval": 500,
   "match": "*",
   "targets": [
-    { "name": "eu · stable", "url": "redis://eu.example:6379/10" },
-    { "name": "eu · dev", "url": "redis://eu.example:6379/42", "match": "dev/*" },
-    { "name": "na · stable", "url": "redis://na.example:6379/10", "username": "rivulet", "passwordEnv": "NA_REDIS_PASSWORD" }
+    { "name": "prod", "url": "redis://prod.example:6379/0" },
+    { "name": "staging", "url": "redis://staging.example:6379/1", "match": "orders:*" },
+    { "name": "eu", "url": "redis://eu.example:6379/0", "username": "rivulet", "passwordEnv": "EU_REDIS_PASSWORD" }
   ]
 }
 ```
 
 Per target you can set `name`, `id`, `streams`, `match`, `maxStreams`,
-`username`, `passwordEnv` and `tls`. A global `--user` / `REDIS_PASSWORD` only
+`username`, `passwordEnv`, `tls`, `showFields` and `colorBy`. A global `--user` / `REDIS_PASSWORD` only
 applies to targets whose URL has no credentials of its own. Command-line flags
 win over environment variables, which win over the file.
+
+### Showing some fields, coloring by type
+
+`--redact` keeps every field value on the server. To show a few safe fields,
+such as an event type, list them: only those leave the bridge, and everything
+else is dropped before it reaches a browser. Listing fields always redacts the
+rest, with or without `--redact`, and an empty list shows nothing.
+
+```sh
+rivulet redis://prod.example:6379 --show-fields type
+```
+
+Entries are then colored by that field's value, with chips under each stream
+showing the busiest values and their rate. Click a chip to highlight one value.
+Coloring uses the first field you list, or `--color-by <field>`. rivulet never
+picks a field on its own: what is safe to show is your decision.
+
+In a config file, `showFields` and `colorBy` work globally or per target.
 
 ### Passwords, ACL users and TLS
 
@@ -209,8 +229,8 @@ page at any bridge with `?ws=ws://host:7380/ws`.
 <summary>WebSocket messages (bridge → browser)</summary>
 
 ```jsonc
-{ "type": "hello", "version": "0.1.0", "target": "eu-stable", "targets": [{ "id": "eu-stable", "name": "eu · stable", "label": "10.0.0.5:6379/10" }],
-  "redis": { "label": "10.0.0.5:6379/10", "version": "8.10.2" }, "redacted": false, "interval": 500 }
+{ "type": "hello", "version": "0.1.0", "target": "prod", "targets": [{ "id": "prod", "name": "prod", "label": "10.0.0.5:6379/0" }],
+  "redis": { "label": "10.0.0.5:6379/0", "version": "8.2.1" }, "redacted": true, "fields": ["type"], "colorBy": "type", "interval": 500 }
 
 { "type": "topology", "time": 1792625082027,          // Redis TIME, ms
   "streams": [{ "key": "orders", "length": 5321, "lastId": "1792625082027-0", "firstId": "…", "entriesAdded": 91234,

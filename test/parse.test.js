@@ -59,6 +59,15 @@ test('entries: truncation, field cap and redaction', () => {
   assert.deepEqual(parseEntries([['1-0', null]]), [['1-0']]);
 });
 
+test('showFields is an allowlist, with or without redact', () => {
+  const raw = [['1-0', ['type', 'order.created', 'payload', '{"card":"4242"}']], ['2-0', ['payload', 'x']]];
+  for (const redact of [true, false]) {
+    assert.deepEqual(parseEntries(raw, { redact, showFields: ['type'] }), [['1-0', { type: 'order.created' }], ['2-0']]);
+  }
+  assert.deepEqual(parseEntries(raw, { showFields: [] }), [['1-0'], ['2-0']]); // empty allowlist fails closed
+  assert.equal(parseEntries([['1-0', ['type', 'y'.repeat(300)]]], { showFields: ['type'] })[0][1].type.length, 201);
+});
+
 test('ids and version', () => {
   assert.ok(cmpId('10-0', '9-5') > 0);
   assert.ok(cmpId('10-1', '10-2') < 0);
