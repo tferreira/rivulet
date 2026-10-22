@@ -6,6 +6,11 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+### Fixed
+- When served by rivulet, the page no longer flashes the demo simulator before
+  the live feed connects; it shows a loading screen instead (and says so if the
+  bridge can't be reached).
+
 ## [0.2.2] - 2026-10-22
 
 ### Added

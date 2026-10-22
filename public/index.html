@@ -126,6 +126,18 @@ main { position: relative; padding: 0 0 24px; }
 canvas { display: block; width: 100%; }
 #empty { display: none; padding: 60px 16px; text-align: center; color: var(--muted); }
 #empty.show { display: block; }
+#loading { display: none; flex-direction: column; align-items: center; gap: 18px; padding: 90px 16px; text-align: center; color: var(--muted); }
+#loading.show { display: flex; }
+#loading .flow { position: relative; width: 180px; height: 10px; }
+#loading .flow::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 2px; border-radius: 1px; background: var(--edge); }
+#loading .flow i { position: absolute; top: 1px; left: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0; animation: flow 1.8s linear infinite; }
+#loading .flow i:nth-child(2) { animation-delay: .6s; background: var(--accent2); }
+#loading .flow i:nth-child(3) { animation-delay: 1.2s; }
+#loading.down .flow i { background: var(--hot); animation-duration: 3.6s; }
+#loading b { color: var(--fg); font-weight: 600; }
+#loading small { font-size: 12px; }
+@keyframes flow { 0% { transform: translateX(0); opacity: 0; } 15%, 85% { opacity: 1; } 100% { transform: translateX(172px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #loading .flow i { animation: none; opacity: 1; } #loading .flow i:nth-child(2) { left: 86px; } #loading .flow i:nth-child(3) { left: 172px; } }
 
 .tip {
   position: fixed; z-index: 30; pointer-events: none; opacity: 0; transition: opacity .12s;
@@ -200,6 +212,7 @@ canvas { display: block; width: 100%; }
 <main>
   <canvas id="c"></canvas>
   <div id="empty">No streams yet. Waiting for <code>XADD</code>…</div>
+  <div id="loading" role="status"><div class="flow" aria-hidden="true"><i></i><i></i><i></i></div><b>Connecting to Redis…</b><small></small></div>
 </main>
 <div id="tip" class="tip"></div>
 <aside id="drawer" aria-hidden="true">
@@ -494,6 +507,18 @@ function renderMode() {
     span.textContent = 'Simulator';
     return;
   }
+  const ld = $('#loading');
+  ld.classList.toggle('show', model.mode === 'connecting');
+  if (model.mode === 'connecting') {
+    const down = wsState === 'off';
+    $('#hint').textContent = 'Read-only view, waiting for the bridge…';
+    ld.classList.toggle('down', down);
+    ld.querySelector('b').textContent = down ? 'Bridge unreachable' : 'Connecting to Redis…';
+    ld.querySelector('small').textContent = down ? 'Is rivulet still running? Retrying…' : '';
+    if (down) el.classList.add('down');
+    span.textContent = down ? 'Retrying…' : 'Connecting…';
+    return;
+  }
   const L = model.live;
   $('#hint').innerHTML = `Read-only view of <code>${esc(L.redis.label)}</code>` +
     (L.redis.version ? ` · Redis ${esc(L.redis.version)}` : '') +
@@ -773,7 +798,7 @@ function frame() {
   for (const S of streamsInOrder()) drawStream(S, rn, pnow, dt);
   drawSparks(pnow);
   drawBursts(pnow);
-  $('#empty').classList.toggle('show', model.streams.size === 0);
+  $('#empty').classList.toggle('show', model.mode !== 'connecting' && model.streams.size === 0);
   requestAnimationFrame(frame);
 }
 
@@ -1279,9 +1304,10 @@ addEventListener('keydown', (e) => {
 setTheme(themeName);
 setWindow([10000, 30000, 120000, 600000].includes(windowMs) ? windowMs : 30000);
 colorBy = 'event'; // the demo shows coloring; live mode takes it from the bridge
-let sim = new Simulator(handle);
-sim.start();
-if (wsUrl()) connect();
+// Served by the bridge (or ?ws=): wait for `hello` instead of flashing the demo.
+let sim = null;
+if (wsUrl()) { model.mode = 'connecting'; connect(); }
+else { sim = new Simulator(handle); sim.start(); }
 $('#target').onchange = (e) => switchTarget(e.target.value);
 // Back/forward (and edited URLs): no hash means the first target.
 addEventListener('hashchange', () => switchTarget(decodeURIComponent(location.hash.slice(1)) || model.live?.targets?.[0]?.id, true));
