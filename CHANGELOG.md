@@ -6,6 +6,12 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+### Fixed
+- The simulator no longer falls permanently behind after its tab sat in the
+  background (throttled timers); it replays the missed time in small steps.
+- Delivery sparks are no longer queued while the tab is hidden, so returning to
+  it doesn't replay a pile of animations.
+
 ## [0.2.0] - 2026-10-22
 
 ### Added

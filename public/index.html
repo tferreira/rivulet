@@ -402,7 +402,8 @@ function applyTopology(m) {
 }
 
 function spawnSparks(S, G, targets, delivered) {
-  if (!targets.length) return;
+  // hidden tab: no frames run to retire sparks, so they'd pile up until we're back
+  if (!targets.length || document.hidden) return;
   const n = Math.min(delivered, Math.round(1 + 3.5 * Math.log10(delivered)), 14);
   const stagger = Math.min(55, 380 / n);
   const total = targets.reduce((a, [, w]) => a + (w || 1), 0);
@@ -551,8 +552,11 @@ class Simulator {
     this.topology(now);
     this.last = now;
     this.timer = setInterval(() => {
+      // Background tabs throttle timers (1/s, then 1/min). Replay the gap in 50 ms
+      // steps: one big step would let each consumer read a single batch, and the
+      // backlog would never drain. Gaps over 2 min (frozen tab) are skipped.
       const t = Date.now(), out = new Map();
-      this.step(t, t - this.last, out);
+      for (let s = Math.max(this.last, t - 120000); s < t;) { const d = Math.min(50, t - s); s += d; this.step(s, d, out); }
       this.last = t;
       for (const [key, entries] of out) this.emit({ type: 'entries', stream: key, entries });
     }, 50);
