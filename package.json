@@ -1,6 +1,6 @@
 {
   "name": "rivulet-redis",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Realtime, animated, read-only visualizer for Redis Streams: streams, consumer groups, lag and pending entries in motion.",
   "main": "src/bridge.js",
   "scripts": {
