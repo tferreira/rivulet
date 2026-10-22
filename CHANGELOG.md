@@ -6,6 +6,11 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-22
+
+### Added
+- A GitHub link in the header, next to the time window controls.
+
 ### Fixed
 - The simulator no longer falls permanently behind after its tab sat in the
   background (throttled timers); it replays the missed time in small steps.
@@ -61,7 +66,8 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tferreira/rivulet/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tferreira/rivulet/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/tferreira/rivulet/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tferreira/rivulet/compare/v0.1.0...v0.1.1
