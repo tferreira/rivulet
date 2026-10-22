@@ -6,6 +6,11 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-22
+
+### Added
+- A favicon (the header's two waves), inline so the page stays one file.
+
 ## [0.2.1] - 2026-10-22
 
 ### Added
@@ -66,7 +71,8 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/tferreira/rivulet/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tferreira/rivulet/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tferreira/rivulet/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/tferreira/rivulet/compare/v0.1.1...v0.1.2
