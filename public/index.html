@@ -289,7 +289,7 @@ function sprite(color) {
 // ---------------------------------------------------------------- model
 // Live and simulated feeds both produce the same two messages (topology,
 // entries); everything visual is derived from them here.
-const MAX_ENTRIES = 4000, CLUSTER_MAX = 24;
+const MAX_ENTRIES = 4000, CLUSTER_MAX = 24, RECENT_MAX = 50;
 const model = { mode: 'sim', live: null, offset: 0, synced: false, streams: new Map(), sparks: [], bursts: [], redis: 'up' };
 let streamSeq = 0;
 
@@ -299,7 +299,7 @@ function ensureStream(key) {
   let S = model.streams.get(key);
   if (!S) {
     S = { key, n: streamSeq++, length: 0, lastId: null, firstId: null, entriesAdded: null, groups: new Map(),
-      entries: [], arrivals: [], rate: 0, pulse: 0, skipped: 0 };
+      entries: [], recent: [], arrivals: [], rate: 0, pulse: 0, skipped: 0 };
     model.streams.set(key, S);
   }
   return S;
@@ -316,10 +316,12 @@ function applyEntries(m) {
     const ms = idMs(id), old = rn - ms > 1500;
     if (!old) fresh++;
     if (!S.lastId || cmpId(id, S.lastId) > 0) S.lastId = id;
+    S.recent.push([id, f || null]);
     if (keep < 1 && hash(id + 'k') > keep) continue;
     S.entries.push({ id, ms, f: f || null, s: hash(id), t: old ? -1e9 : t, x: -99, y: -99 });
   }
   if (S.entries.length > MAX_ENTRIES) S.entries.splice(0, S.entries.length - MAX_ENTRIES);
+  if (S.recent.length > RECENT_MAX) S.recent.splice(0, S.recent.length - RECENT_MAX);
   if (fresh) { S.arrivals.push([Date.now(), fresh]); S.pulse = 1; }
   if (m.skipped) S.skipped++;
 }
@@ -1139,15 +1141,20 @@ function renderDrawer() {
   if (!S) return closeDrawer();
   const rn = redisNow();
   $('#dTitle').textContent = S.key;
-  $('#dMeta').textContent = `${fmtN(S.length)} entries · ${S.groups.size} group${S.groups.size === 1 ? '' : 's'} · ${S.rate.toFixed(1)}/s`;
-  const list = drawer.remote || S.entries.slice(-40).reverse().map((e) => [e.id, e.f]);
+  $('#dMeta').textContent = `${fmtN(S.length)} stored` + (S.entriesAdded != null ? ` · ${fmtN(S.entriesAdded)} added in total` : '') +
+    ` · ${S.groups.size} group${S.groups.size === 1 ? '' : 's'} · ${S.rate.toFixed(1)}/s`;
+  // What Redis still holds (XREVRANGE) plus what this page saw arrive: streams that
+  // delete entries once acked (XACKDEL … ACKED) hold almost nothing themselves.
+  const byId = new Map();
+  for (const [id, f] of [...(drawer.remote || []), ...S.recent]) if (!byId.has(id)) byId.set(id, f);
+  const list = [...byId].sort((a, b) => cmpId(b[0], a[0])).slice(0, RECENT_MAX);
   $('#dList').innerHTML = list.length
     ? list.map(([id, f]) => `<li><span class="id">${esc(id)}</span><span class="age">${fmtMs(rn - idMs(id))} ago</span>` +
       (f ? `<div class="f">${Object.entries(f).map(([k, v]) => `<b>${esc(k)}</b>=${esc(v)}`).join('  ')}</div>` : '') + '</li>').join('')
-    : '<li>No entries in view.</li>';
+    : `<li>${S.length ? 'Loading…' : 'Nothing stored in this stream right now, and nothing has arrived since this page opened. New entries show up here as they come in.'}</li>`;
 }
 $('#dClose').onclick = closeDrawer;
-setInterval(() => drawer.key && !drawer.remote && renderDrawer(), 1000);
+setInterval(() => drawer.key && renderDrawer(), 1000);
 
 // ---------------------------------------------------------------- controls
 const THEME_ORDER = Object.keys(THEMES);

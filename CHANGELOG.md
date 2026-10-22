@@ -6,6 +6,15 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-22
+
+### Fixed
+- The "recent entries" drawer was empty on streams that delete entries once
+  every group acked them (`XACKDEL … ACKED`), even with entries visibly
+  flowing: Redis holds almost nothing, and the drawer showed only that. It now
+  merges what Redis still holds with the last 50 entries the page saw arrive,
+  independent of the time window, and its header shows stored vs. total added.
+
 ## [0.1.0] - 2026-10-22
 
 First release.
@@ -26,5 +35,6 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/tferreira/rivulet/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tferreira/rivulet/releases/tag/v0.1.0
