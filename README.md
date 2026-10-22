@@ -187,6 +187,9 @@ This is enforced in code ([`src/guard.js`](src/guard.js)): every command goes
 through an allowlist before it reaches the socket, so it never writes, never
 `XACK`s, never `XREADGROUP`s or claims, and never changes a group's position.
 Tailing uses plain `XREAD BLOCK`, which leaves consumer groups untouched.
+It keeps a queue of reads waiting in Redis so there's never a gap between
+them, which is what lets it see entries on streams whose consumers delete
+them within milliseconds (`XACKDEL … ACKED`).
 
 For defence in depth, give it a Redis user that can't do anything else:
 
@@ -195,9 +198,10 @@ ACL SETUSER rivulet on >CHANGE_ME ~* resetchannels -@all +xinfo|stream +xinfo|gr
 ```
 
 **Load.** Each poll costs about `2 + 2 × groups` cheap commands per stream
-(default every 500 ms), plus one blocking `XREAD` connection. Discovery runs
-`SCAN … TYPE stream` every 15 s; on a large keyspace, pass `--streams` or a
-narrow `--match` instead.
+(default every 500 ms), plus one tail connection. Tailing costs two cheap
+`XREAD`s per arrival, or about 20 per second while the streams are idle.
+Discovery runs `SCAN … TYPE stream` every 15 s; on a large keyspace, pass
+`--streams` or a narrow `--match` instead.
 
 ## Redis versions
 

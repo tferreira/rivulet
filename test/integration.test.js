@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import net from 'node:net';
 import Redis from 'ioredis';
 import WebSocket from 'ws';
 import { Bridge } from '../src/bridge.js';
@@ -63,6 +64,71 @@ test('bridge observes streams, groups and new entries without writing', { skip }
   const summary = await writer.xpending(key, 'g1');
   assert.equal(Number(summary[0]), 1);
   await assert.rejects(bridge.cmd.xadd(key, '*', 'x', '1'), /blocked XADD/);
+});
+
+// TCP proxy that delays every chunk, to give the bridge a real round trip.
+async function slowProxy(target, delay) {
+  const { hostname, port } = new URL(target);
+  const srv = net.createServer((a) => {
+    const b = net.connect(Number(port) || 6379, hostname);
+    const pipe = (from, to) => from.on('data', (d) => setTimeout(() => to.write(d), delay));
+    pipe(a, b);
+    pipe(b, a);
+    a.on('close', () => b.destroy());
+    b.on('close', () => a.destroy());
+    a.on('error', () => {});
+    b.on('error', () => {});
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const u = new URL(target);
+  u.hostname = '127.0.0.1';
+  u.port = srv.address().port;
+  return { url: u.href, close: () => srv.close() };
+}
+
+test('tail sees entries deleted right after they are added', { skip }, async (t) => {
+  const writer = new Redis(url);
+  t.after(async () => { await writer.del(key); writer.disconnect(); });
+  await writer.del(key);
+  await writer.xadd(key, '*', 'n', '0');
+  const proxy = await slowProxy(url, 40); // ~80 ms round trip
+  t.after(() => proxy.close());
+
+  const bridge = new Bridge({ url: proxy.url, streams: [key], interval: 100 });
+  const seen = new Set();
+  bridge.on('entries', (m) => m.entries.forEach(([id]) => seen.add(id)));
+  await bridge.start();
+  t.after(() => bridge.stop());
+  await once(bridge, 'topology');
+  await sleep(300);
+
+  // Pairs a few ms apart, each deleted well within the bridge's round trip (like
+  // consumers that XACKDEL … ACKED): one XREAD at a time only ever sees the first.
+  const ids = [];
+  for (let i = 0; i < 5; i++) {
+    const a = await writer.xadd(key, '*', 'n', `a${i}`);
+    await sleep(5);
+    const b = await writer.xadd(key, '*', 'n', `b${i}`);
+    await sleep(5);
+    await writer.xdel(key, a, b);
+    ids.push(a, b);
+    await sleep(150);
+  }
+  await sleep(300);
+  assert.deepEqual(ids.filter((id) => !seen.has(id)), []);
+
+  // A burst: ~20 separate arrivals per round trip, each deleted 2 ms after it's added.
+  const burst = [];
+  const dels = [];
+  for (let i = 0; i < 200; i++) {
+    const id = await writer.xadd(key, '*', 'n', `burst${i}`);
+    burst.push(id);
+    dels.push(sleep(2).then(() => writer.xdel(key, id)));
+    await sleep(4);
+  }
+  await Promise.all(dels);
+  await sleep(300);
+  assert.deepEqual(burst.filter((id) => !seen.has(id)), []);
 });
 
 test('server routes each browser to its target and connects lazily', { skip }, async (t) => {

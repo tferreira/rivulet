@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import Redis from 'ioredis';
 import { guard } from './guard.js';
 import {
+  cmpId,
   idMs,
   parseConsumers,
   parseEntries,
@@ -11,6 +12,8 @@ import {
   parseRedisVersion,
   parseStreamInfo,
 } from './parse.js';
+
+const FAILED = Symbol('failed');
 
 const DEFAULTS = {
   url: 'redis://127.0.0.1:6379',
@@ -23,6 +26,7 @@ const DEFAULTS = {
   discoverEvery: 15000,
   maxStreams: 50,
   count: 500, // max entries per stream per XREAD
+  depth: 50, // XREAD pairs kept queued on the tail connection, see tailLoop()
   pelSample: 20,
   redact: false,
   showFields: null, // allowlist of field names sent to browsers; all others dropped
@@ -180,37 +184,64 @@ export class Bridge extends EventEmitter {
     }
   }
 
+  // Entries can be deleted within milliseconds (consumers using XACKDEL … ACKED),
+  // so there must never be a moment without a read waiting in Redis: one XREAD
+  // at a time misses whatever is added and deleted during each round trip.
+  //
+  // So the tail connection keeps `depth` pairs queued: a plain XREAD from the
+  // cursor, then XREAD BLOCK on `$`. Redis runs a client's queued commands back
+  // to back, and when the blocked read is woken the next pair runs in the same
+  // event-loop pass, before any consumer has even been sent the new entry (let
+  // alone acked it). The first read of the pair returns everything still stored
+  // past its cursor, the second waits for what comes next. Cursors are stale by
+  // the time a queued pair runs, so replies overlap; entries at or before the
+  // current cursor are dropped as duplicates. Each answered pair is replaced,
+  // so the queue only runs dry if more than `depth` separate arrivals land
+  // within one round trip. The short BLOCK keeps an idle queue cycling, so a
+  // newly discovered stream is part of the reads within depth × 100 ms.
   async tailLoop() {
-    while (!this.stopped) {
+    const read = (keys, ids, block) =>
+      this.tail
+        .call('xread', 'COUNT', this.opts.count, ...(block ? ['BLOCK', 100] : []), 'STREAMS', ...keys, ...ids)
+        .catch(() => FAILED);
+    const queue = [];
+    const pair = () => {
       const keys = [...this.cursors.keys()];
       if (!keys.length) {
-        await sleep(300);
+        queue.push(sleep(300).then(() => null));
+        return;
+      }
+      queue.push(read(keys, keys.map((k) => this.cursors.get(k))));
+      queue.push(read(keys, keys.map(() => '$'), true));
+    };
+    while (!this.stopped) {
+      while (queue.length < 2 * this.opts.depth) pair();
+      const res = await queue.shift();
+      if (this.stopped) break;
+      if (res === FAILED) {
+        queue.length = 0; // connection trouble: start over once it's back
+        await sleep(1000);
         continue;
       }
-      let res;
-      try {
-        res = await this.tail.call(
-          'xread', 'COUNT', this.opts.count, 'BLOCK', 1000,
-          'STREAMS', ...keys, ...keys.map((k) => this.cursors.get(k)),
-        );
-      } catch (err) {
-        if (!this.stopped) await sleep(1000);
-        continue;
-      }
-      for (const [key, raw] of res || []) {
-        if (!this.cursors.has(key) || !raw.length) continue;
-        const entries = parseEntries(raw, this.opts);
-        const lastId = entries[entries.length - 1][0];
-        this.cursors.set(key, lastId);
-        const msg = { type: 'entries', stream: key, entries };
-        // Too far behind a firehose: jump to the head rather than replay history.
-        const head = this.topology?.streams.find((s) => s.key === key)?.lastId;
-        if (raw.length >= this.opts.count && head && idMs(head) - idMs(lastId) > 3000) {
-          this.cursors.set(key, head);
-          msg.skipped = true;
-        }
-        this.emit('entries', msg);
-      }
+      for (const [key, raw] of res || []) this.ingest(key, raw);
     }
+  }
+
+  ingest(key, raw) {
+    const cursor = this.cursors.get(key);
+    if (cursor == null) return;
+    const fresh = raw.filter(([id]) => cmpId(id, cursor) > 0);
+    if (!fresh.length) return;
+    const entries = parseEntries(fresh, this.opts);
+    const lastId = entries[entries.length - 1][0];
+    this.cursors.set(key, lastId);
+    const msg = { type: 'entries', stream: key, entries };
+    // Too far behind a firehose: jump to the head rather than replay history.
+    const head = this.topology?.streams.find((s) => s.key === key)?.lastId;
+    if (raw.length >= this.opts.count && head && idMs(head) - idMs(lastId) > 3000) {
+      this.cursors.set(key, head);
+      msg.skipped = true;
+    }
+    this.emit('entries', msg);
   }
 }
