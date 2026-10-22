@@ -6,6 +6,15 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-22
+
+### Fixed
+- Tailing no longer misses entries on streams whose consumers delete them
+  right after acking (`XACKDEL … ACKED`). It used to send one `XREAD` at a
+  time, and whatever was added and deleted during the round trip before the
+  next one was never seen. The bridge now keeps a queue of reads waiting in
+  Redis, so one is always there when an entry arrives.
+
 ## [0.2.3] - 2026-10-22
 
 ### Fixed
@@ -78,7 +87,8 @@ First release.
 - Startup check of every target; `/healthz` reports per-target state.
 - systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
-[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/tferreira/rivulet/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/tferreira/rivulet/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/tferreira/rivulet/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tferreira/rivulet/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tferreira/rivulet/compare/v0.2.0...v0.2.1
