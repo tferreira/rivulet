@@ -6,15 +6,6 @@ include breaking changes to the CLI or the WebSocket protocol.
 
 ## [Unreleased]
 
-### Added
-- Several Redis targets in one rivulet: `--config file.json`, repeatable
-  `--target name=url`, or several URLs. The UI gets a picker, and the choice is
-  kept in the URL hash.
-- Targets connect lazily: no Redis connections or commands while nobody is
-  watching; disconnect 60 s after the last viewer leaves.
-- Startup check of every target; `/healthz` reports per-target state.
-- CI runs against Redis 8.
-
 ## [0.1.0] - 2026-10-22
 
 First release.
@@ -28,7 +19,12 @@ First release.
   scaled by throughput, pending entries per consumer, sampling for busy streams.
 - CLI with ACL username, password from an env var, TLS, stream filters and
   `--redact`.
-- systemd unit, Dockerfile, demo traffic generator.
+- Several Redis targets in one rivulet (`--config file.json`, repeatable
+  `--target name=url`, or several URLs) with a picker in the UI; the choice is
+  kept in the URL hash. Targets connect lazily: no Redis commands while nobody
+  is watching.
+- Startup check of every target; `/healthz` reports per-target state.
+- systemd unit, Dockerfile, demo traffic generator. CI on Redis 6.2, 7.4, 8.
 
 [Unreleased]: https://github.com/tferreira/rivulet/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/tferreira/rivulet/releases/tag/v0.1.0
